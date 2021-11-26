@@ -18,9 +18,6 @@ const VV = MOI.VectorOfVariables
 const VAT = MOI.VectorAffineTerm{Float64}
 const VAF = MOI.VectorAffineFunction{Float64}
 
-# supported scalar discrete sets
-const DiscreteSet = Union{MOI.Integer, MOI.ZeroOne, MOI.Semiinteger{Float64}}
-
 include("optimize.jl")
 include("cut_utilities.jl")
 include("MOI_wrapper.jl")

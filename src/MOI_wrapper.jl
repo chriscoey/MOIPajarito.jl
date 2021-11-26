@@ -35,14 +35,19 @@ function MOI.set(opt::Optimizer, attr::MOI.VariablePrimalStart, vi::VI, value)
     return
 end
 
-function MOI.supports_constraint(opt::Optimizer, F::Type{VI}, S::Type{<:DiscreteSet})
+# only discrete set supported is integer, because we want bridges to add explicit
+# variable bounds for e.g. ZeroOne so that these are available to the conic solver
+function MOI.supports_constraint(opt::Optimizer, F::Type{VI}, S::Type{MOI.Integer})
     return MOI.supports_constraint(_oa_opt(opt), F, S)
 end
 
-function MOI.add_constraint(opt::Optimizer, vi::VI, set::DiscreteSet)
-    push!(opt.int_indices, vi.value)
+function MOI.add_constraint(opt::Optimizer, vi::VI, set::MOI.Integer)
     return MOI.add_constraint(_oa_opt(opt), _map(opt.oa_vars, vi), set)
 end
+
+# MOI.is_valid(opt::Optimizer, ci::CI{VI, MOI.Integer}) = MOI.is_valid(_oa_opt(opt), ci)
+
+MOI.delete(opt::Optimizer, ci::CI{VI, MOI.Integer}) = MOI.delete(_oa_opt(opt), ci)
 
 function MOI.supports_constraint(
     opt::Optimizer,
@@ -77,21 +82,31 @@ function MOI.add_constraint(
     set::S,
 ) where {F <: Union{VV, VAF}, S <: MOI.AbstractVectorSet}
     func = MOIU.canonical(func)
+    ci = MOI.add_constraint(_conic_opt(opt), _map(opt.conic_vars, func), set)
     if MOI.supports_constraint(_oa_opt(opt), F, S)
         MOI.add_constraint(_oa_opt(opt), _map(opt.oa_vars, func), set)
     else
-        # store for outer approximation
-        push!(opt.con_funcs, func)
-        push!(opt.con_sets, set)
+        # (F, S) constraints need outer approximation
+        push!(opt.approx_types, (F, S))
     end
-    return MOI.add_constraint(_conic_opt(opt), _map(opt.conic_vars, func), set)
+    return ci
+end
+
+# MOI.is_valid(opt::Optimizer, ci::CI) = MOI.is_valid(_conic_opt(opt), ci)
+
+function MOI.delete(opt::Optimizer, ci::CI)
+    MOI.delete(_conic_opt(opt), ci)
+    if MOI.is_valid(_oa_opt(opt), ci)
+        MOI.delete(_oa_opt(opt), ci)
+    end
+    return nothing
 end
 
 _map(vars::Vector{VI}, vis) = MOIU.map_indices(vi -> vars[vi.value], vis)
 
 MOI.get(opt::Optimizer, attr::MOI.NumberOfConstraints) = MOI.get(_conic_opt(model), attr)
 
-function MOI.get(opt::Optimizer, attr::MOI.NumberOfConstraints{VI, <:DiscreteSet})
+function MOI.get(opt::Optimizer, attr::MOI.NumberOfConstraints{VI, MOI.Integer})
     return MOI.get(_oa_opt(model), attr)
 end
 

@@ -1,34 +1,57 @@
-# cut utilities
+# K* cut utilities
 
-function add_init_cuts(k::Int, opt::Optimizer)
-    func = opt.con_funcs[k]
-    cuts = Cuts.get_init_cuts(opt.con_sets[k])
-    for cut in cuts
-        _add_constraint(cut, func, opt.oa_opt, nothing)
+# initial fixed cuts
+function add_init_cuts(opt::Optimizer)
+    for (ci, func, set) in opt.approx_cons
+        cuts = Cuts.get_init_cuts(set)
+        for cut in cuts
+            _add_constraint(cut, func, opt.oa_opt, nothing)
+        end
+        opt.num_cuts += length(cuts)
     end
-    opt.num_cuts += length(cuts)
     return nothing
 end
 
-function add_sep_cuts(k::Int, opt::Optimizer, cb = nothing)
-    func = opt.con_funcs[k]
-    point = MOIU.eval_variables(vi -> _get_val(vi, opt.oa_opt, cb), func)
-    @assert !any(isnan, point)
-    cuts = Cuts.get_sep_cuts(point, opt.con_sets[k], opt.tol_feas)
-    for cut in cuts
-        _add_constraint(cut, func, opt.oa_opt, cb)
+# subproblem dual cuts
+function add_subp_cuts(opt::Optimizer, cb = nothing)
+    num_cuts_before = opt.num_cuts
+    for (ci, func, set) in opt.approx_cons
+        dual = MOI.get(opt.conic_opt, MOI.ConstraintDual(), ci)
+        @assert !any(isnan, dual)
+        cuts = Cuts.get_subp_cuts(dual, set, opt.tol_feas)
+        for cut in cuts
+            _add_constraint(cut, func, opt.oa_opt, cb)
+        end
+        opt.num_cuts += length(cuts)
     end
-    opt.num_cuts += length(cuts)
-    return !isempty(cuts)
+    return (opt.num_cuts > num_cuts_before)
 end
 
-function _get_val(vi::VI, oa_opt::MOI.ModelLike, ::Nothing)
-    return MOI.get(oa_opt, MOI.VariablePrimal(), vi)
+# separation cuts
+function add_sep_cuts(opt::Optimizer, cb = nothing)
+    num_cuts_before = opt.num_cuts
+    for (ci, func, set) in opt.approx_cons
+        # prim = MOIU.eval_variables(vi -> _get_val(vi, opt.oa_opt, cb), func)
+        prim = MOI.get(opt.conic_opt, MOI.ConstraintPrimal(), ci)
+        @assert !any(isnan, prim)
+        cuts = Cuts.get_sep_cuts(prim, set, opt.tol_feas)
+        for cut in cuts
+            _add_constraint(cut, func, opt.oa_opt, cb)
+        end
+        opt.num_cuts += length(cuts)
+    end
+    return (opt.num_cuts > num_cuts_before)
 end
 
-function _get_val(vi::VI, oa_opt::MOI.ModelLike, cb)
-    return MOI.get(oa_opt, MOI.CallbackVariablePrimal(cb), vi)
-end
+# helpers
+
+# function _get_val(vi::VI, oa_opt::MOI.ModelLike, ::Nothing)
+#     return MOI.get(oa_opt, MOI.VariablePrimal(), vi)
+# end
+
+# function _get_val(vi::VI, oa_opt::MOI.ModelLike, cb)
+#     return MOI.get(oa_opt, MOI.CallbackVariablePrimal(cb), vi)
+# end
 
 function _cut_expr(cut::Vector{Float64}, func::VV)
     return MOI.ScalarAffineFunction(SAT.(cut, func.variables), 0.0)

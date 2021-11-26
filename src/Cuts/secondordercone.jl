@@ -27,6 +27,14 @@ function get_init_cuts(cone::MOI.SecondOrderCone)
     return cuts
 end
 
+# # TODO strengthen the cut
+# function get_subp_cuts(cone::MOI.SecondOrderCone)
+#     cuts = Vector{Float64}[]
+#     dim = MOI.dimension(cone)
+
+#     return cuts
+# end
+
 function get_sep_cuts(x::Vector{Float64}, cone::MOI.SecondOrderCone, tol::Float64)
     dim = MOI.dimension(cone)
     y_norm = norm(x[i] for i in 2:dim)

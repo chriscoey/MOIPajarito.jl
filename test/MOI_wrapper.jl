@@ -9,9 +9,8 @@ const MOIU = MOI.Utilities
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    Test.@testset "use iterative method: $use_iter" for use_iter in (true, false)
-        run_moi_tests(use_iter, oa_solver, conic_solver)
-    end
+    Test.@testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
+    # Test.@testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
     return
 end
 
@@ -49,7 +48,10 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
     ]
     excludes = String[]
 
-    includes = String["test_conic_SecondOrderCone",]
+    includes = String[
+        # "test_conic_SecondOrderCone",
+        "test_conic_SecondOrderCone_negative_post_bound_2",
+    ]
     # includes = String[]
 
     MOI.Test.runtests(caching_opt, config, exclude = excludes, include = includes)
