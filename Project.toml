@@ -1,0 +1,21 @@
+name = "MOIPajarito"
+uuid = "bb71f62f-4cf1-45c2-9beb-f0885cb3eba8"
+authors = ["Chris Coey <coey.chris@gmail.com>"]
+version = "0.0.0"
+
+[deps]
+ECOS = "e2685f51-7e38-5353-a97d-a921fd2c8199"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[compat]
+MathOptInterface = "0.10.5"
+julia = "1.6"
+
+[extras]
+GLPK = "60bf3e95-4087-53dc-ae20-288a0d20c6a6"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["GLPK", "Test"]
