@@ -3,7 +3,7 @@
 _is_empty(opt) = (isnothing(opt) || MOI.is_empty(opt))
 MOI.is_empty(opt::Optimizer) = (_is_empty(opt.oa_opt) && _is_empty(opt.conic_opt))
 
-MOI.empty!(opt::Optimizer) = _empty(opt)
+MOI.empty!(opt::Optimizer) = _empty_all(opt)
 
 MOI.get(::Optimizer, ::MOI.SolverName) = "Pajarito"
 
@@ -110,7 +110,14 @@ function MOI.get(opt::Optimizer, attr::MOI.NumberOfConstraints{VI, MOI.Integer})
     return MOI.get(_oa_opt(model), attr)
 end
 
-MOI.supports(opt::Optimizer, attr::MOI.ObjectiveSense) = true
+function MOI.supports(
+    opt::Optimizer,
+    attr::Union{MOI.ObjectiveSense, MOI.ObjectiveFunction},
+)
+    oa_supports = MOI.supports(_oa_opt(opt), attr)
+    conic_supports = MOI.supports(_conic_opt(opt), attr)
+    return oa_supports && conic_supports
+end
 
 function MOI.set(opt::Optimizer, attr::MOI.ObjectiveSense, sense)
     MOI.set(_oa_opt(opt), attr, sense)
@@ -120,24 +127,18 @@ end
 
 MOI.get(opt::Optimizer, attr::MOI.ObjectiveSense) = MOI.get(_oa_opt(opt), attr)
 
-function MOI.supports(opt::Optimizer, attr::MOI.ObjectiveFunction)
-    oa_supports = MOI.supports(_oa_opt(opt), attr)
-    conic_supports = MOI.supports(_conic_opt(opt), attr)
-    return oa_supports && conic_supports
-end
-
 function MOI.set(opt::Optimizer, attr::MOI.ObjectiveFunction, func)
     MOI.set(_oa_opt(opt), attr, _map(opt.oa_vars, func))
     MOI.set(_conic_opt(opt), attr, _map(opt.conic_vars, func))
     return
 end
 
-function MOI.get(opt::Optimizer, param::MOI.RawOptimizerAttribute)
-    return getproperty(opt, Symbol(param.name))
-end
-
 function MOI.supports(::Optimizer, param::MOI.RawOptimizerAttribute)
     return (Symbol(param.name) in fieldnames(Optimizer))
+end
+
+function MOI.get(opt::Optimizer, param::MOI.RawOptimizerAttribute)
+    return getproperty(opt, Symbol(param.name))
 end
 
 function MOI.set(opt::Optimizer, param::MOI.RawOptimizerAttribute, value)
@@ -145,6 +146,7 @@ function MOI.set(opt::Optimizer, param::MOI.RawOptimizerAttribute, value)
     return
 end
 
+# TODO check if supported by OA and conic solvers too? and set on those?
 MOI.supports(::Optimizer, ::MOI.Silent) = true
 
 function MOI.set(opt::Optimizer, ::MOI.Silent, value::Bool)
@@ -154,6 +156,7 @@ end
 
 MOI.get(opt::Optimizer, ::MOI.Silent) = !opt.verbose
 
+# TODO check if supported by OA and conic solvers too? and set on those?
 MOI.supports(::Optimizer, ::MOI.TimeLimitSec) = true
 
 function MOI.set(opt::Optimizer, ::MOI.TimeLimitSec, value::Nothing)

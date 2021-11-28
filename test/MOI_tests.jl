@@ -1,16 +1,16 @@
 # MOI tests
 
-module TestMOIWrapper
+module TestMOI
 
-import Test
+using Test
 import MathOptInterface
 const MOI = MathOptInterface
 const MOIU = MOI.Utilities
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    Test.@testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
-    # Test.@testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
+    # @testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
+    @testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
     return
 end
 
@@ -30,6 +30,7 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
         atol = 1e-4,
         rtol = 1e-4,
         exclude = Any[
+            MOI.delete, # TODO support
             MOI.ConstraintDual,
             MOI.ConstraintBasisStatus,
             MOI.DualObjectiveValue,
@@ -48,10 +49,11 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
     ]
     excludes = String[]
 
-    includes = String[
-        # "test_conic_SecondOrderCone",
-        "test_conic_SecondOrderCone_negative_post_bound_2",
-    ]
+    includes = String["test_conic_SecondOrderCone",
+    # "test_conic_SecondOrderCone_negative_post_bound_2",
+    # "test_conic_SecondOrderCone_Nonnegatives",
+    # "test_conic_SecondOrderCone_INFEASIBLE",
+]
     # includes = String[]
 
     MOI.Test.runtests(caching_opt, config, exclude = excludes, include = includes)
