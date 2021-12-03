@@ -6,8 +6,9 @@ include("Cuts/Cuts.jl")
 
 import Printf
 import LinearAlgebra
-import MathOptInterface
-const MOI = MathOptInterface
+
+import JuMP
+const MOI = JuMP.MOI
 # TODO delete unused
 const MOIU = MOI.Utilities
 const VI = MOI.VariableIndex

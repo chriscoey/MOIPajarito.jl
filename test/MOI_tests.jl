@@ -9,14 +9,14 @@ const MOIU = MOI.Utilities
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    # @testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
+    @testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
     @testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
     return
 end
 
 function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
     paj_opt = MOIPajarito.Optimizer()
-    # MOI.set(paj_opt, MOI.Silent(), true)
+    MOI.set(paj_opt, MOI.Silent(), true)
     MOI.set(paj_opt, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
     MOI.set(paj_opt, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
     MOI.set(paj_opt, MOI.RawOptimizerAttribute("conic_solver"), conic_solver)
@@ -30,31 +30,29 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
         atol = 1e-4,
         rtol = 1e-4,
         exclude = Any[
-            MOI.delete, # TODO support
+            MOI.delete,
             MOI.ConstraintDual,
             MOI.ConstraintBasisStatus,
             MOI.DualObjectiveValue,
+            MOI.SolverVersion,
         ],
     )
 
     excludes = String[
-        # not implemented:
-        "test_attribute_SolverVersion",
-        # invalid model:
-        # "test_constraint_ZeroOne_bounds_3",
-        "test_linear_VectorAffineFunction_empty_row",
-        # CachingOptimizer does not throw if optimizer not attached:
-        "test_model_copy_to_UnsupportedAttribute",
-        "test_model_copy_to_UnsupportedConstraint",
+        # # invalid model:
+        # # "test_constraint_ZeroOne_bounds_3",
+        # "test_linear_VectorAffineFunction_empty_row",
+        # # CachingOptimizer does not throw if optimizer not attached:
+        # "test_model_copy_to_UnsupportedAttribute",
+        # "test_model_copy_to_UnsupportedConstraint",
     ]
-    excludes = String[]
 
-    includes = String["test_conic_SecondOrderCone",
-    # "test_conic_SecondOrderCone_negative_post_bound_2",
-    # "test_conic_SecondOrderCone_Nonnegatives",
-    # "test_conic_SecondOrderCone_INFEASIBLE",
-]
-    # includes = String[]
+    includes = String[
+        # "test_conic_SecondOrderCone",
+        # "test_conic_SecondOrderCone_negative_post_bound_2",
+        # "test_conic_SecondOrderCone_Nonnegatives",
+        # "test_conic_SecondOrderCone_INFEASIBLE",
+    ]
 
     MOI.Test.runtests(caching_opt, config, exclude = excludes, include = includes)
     return
