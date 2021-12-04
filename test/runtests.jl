@@ -12,22 +12,23 @@ oa_solver = MOI.OptimizerWithAttributes(
     "tol_bnd" => 1e-8,
     "mip_gap" => 0.0,
 )
+
 import ECOS
 conic_solver = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 # import Hypatia
 # conic_solver = MOI.OptimizerWithAttributes(Hypatia.Optimizer, MOI.Silent() => true)
 
+Test.@testset "Pajarito tests" begin
+    println("starting MOI tests")
+    include("MOI_tests.jl")
+    Test.@testset "MOI tests" begin
+        TestMOI.runtests(oa_solver, conic_solver)
+    end
 
-include("MOI_tests.jl")
-println("starting MOI tests")
-Test.@testset "MOI tests" begin
-    TestMOI.runtests(oa_solver, conic_solver)
-end
-;
-
-include("JuMP_tests.jl")
-println("starting JuMP tests")
-Test.@testset "JuMP tests" begin
-    TestJuMP.runtests(oa_solver, conic_solver)
+    println("starting JuMP tests")
+    include("JuMP_tests.jl")
+    Test.@testset "JuMP tests" begin
+        TestJuMP.runtests(oa_solver, conic_solver)
+    end
 end
 ;

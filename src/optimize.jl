@@ -198,22 +198,8 @@ function iterative_method(opt::Optimizer)
     end
 
     # add OA cuts
-    subp_cuts_added = add_subp_cuts(opt)
-    if !subp_cuts_added
-        if opt.verbose
-            println("no subproblem cuts were added during an iteration")
-        end
-        # try separation cuts
-        cuts_added = add_sep_cuts(opt)
-        if !cuts_added
-            if opt.verbose
-                println("no cuts were added during an iteration; terminating")
-            end
-            # TODO check if almost optimal
-            opt.status = MOI.OTHER_ERROR
-            return true
-        end
-    end
+    cuts_finish = add_subp_sep_cuts(opt)
+    cuts_finish && return true
 
     return false
 end
@@ -222,28 +208,16 @@ end
 function oa_solver_driven_method(opt::Optimizer)
     function lazy_callback(cb)
         opt.num_callbacks += 1
-        # status = callback_node_status(cb, opt.oa_opt)
-        # TODO
-        # if status == MOI.CALLBACK_NODE_STATUS_FRACTIONAL
-        #     # `callback_value(cb_data, x)` is not integer (to some tolerance).
-        #     # If, for example, your lazy constraint generator requires an
-        #     # integer-feasible primal solution, you can add a `return` here.
-        #     return
-        # elseif status == MOI.CALLBACK_NODE_STATUS_INTEGER
-        #     # `callback_value(cb_data, x)` is integer (to some tolerance).
-        # else
-        #     @assert status == MOI.CALLBACK_NODE_STATUS_UNKNOWN
-        #     # `callback_value(cb_data, x)` might be fractional or integer.
-        # end
-        # x_val = callback_value(cb_data, x)
-        # if x_val > 2 + 1e-6
-        #     con = @build_constraint(x <= 2)
-        #     MOI.submit(model, MOI.LazyConstraint(cb_data), con)
-        # end
+        cb_status = callback_node_status(cb, opt.oa_opt)
+        if cb_status != MOI.CALLBACK_NODE_STATUS_INTEGER
+            # only solve subproblem at an integer solution
+            return
+        end
 
-        cuts_added = add_sep_cuts(opt, cb)
-        if !cuts_added && opt.verbose
-            println("no cuts were added during callback")
+        subp_ok = !solve_subproblem(opt, cb)
+        if subp_ok
+            cuts_finish = add_subp_sep_cuts(opt)
+            # TODO do something with cuts_finish?
         end
     end
     MOI.set(opt.oa_opt, MOI.LazyConstraintCallback(), lazy_callback)
@@ -318,26 +292,26 @@ end
 
 # solve subproblem with new integer variable bounds
 # TODO handle non-equal bounds in lazy callback
-function solve_subproblem(opt::Optimizer)
+function solve_subproblem(opt::Optimizer, cb = nothing)
     # update integer bounds
     for i in opt.integer_vars
         x_i = opt.oa_vars[i]
-        val = JuMP.value(x_i)
-        @assert val ≈ round(val)
+        val = _get_value(x_i, cb)
+        @assert val ≈ round(val) # TODO
         # TODO map oa var to conic var
         JuMP.fix(opt.subp_vars[i], val; force = true)
     end
 
     # solve
-    JuMP.optimize!(opt.relax_model)
-    subp_status = JuMP.termination_status(opt.relax_model)
+    JuMP.optimize!(opt.subp_model)
+    subp_status = JuMP.termination_status(opt.subp_model)
 
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
 
     if subp_status == MOI.OPTIMAL
-        obj_val = JuMP.objective_value(opt.relax_model) + opt.obj_offset
+        obj_val = JuMP.objective_value(opt.subp_model) + opt.obj_offset
         if _compare_obj(obj_val, opt.obj_value, opt)
             # update incumbent and objective value
             sol = JuMP.value.(opt.subp_vars)
@@ -475,4 +449,41 @@ function _setup_models(opt::Optimizer)
     end
 
     return true
+end
+
+function add_subp_sep_cuts(opt::Optimizer, cb = nothing)
+    subp_cuts_added = add_subp_cuts(opt)
+    if !subp_cuts_added
+        if opt.verbose
+            println("subproblem cuts could not be added")
+        end
+
+        # try separation cuts
+        cuts_added = add_sep_cuts(opt)
+        if !cuts_added
+            if opt.verbose
+                println("separation cuts could not be added; terminating")
+            end
+            # TODO check if almost optimal
+            opt.status = MOI.OTHER_ERROR
+            return true
+        end
+    end
+    return false
+end
+
+function _get_value(var::JuMP.VariableRef, ::Nothing)
+    return JuMP.value(var)
+end
+
+function _get_value(var::JuMP.VariableRef, cb)
+    return JuMP.callback_value(cb, var)
+end
+
+function _get_value(vars::Vector{JuMP.VariableRef}, ::Nothing)
+    return JuMP.value.(vars)
+end
+
+function _get_value(vars::Vector{JuMP.VariableRef}, cb)
+    return JuMP.callback_value.(cb, vars)
 end

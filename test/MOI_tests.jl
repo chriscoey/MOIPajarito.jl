@@ -9,7 +9,7 @@ import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
     @testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
-    # @testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
+    @testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
     return
 end
 
@@ -38,7 +38,9 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
                 MOI.SolverVersion,
                 ],
         ),
-        # include = String[],
+        include = String[
+            # "test_conic",
+        ],
         exclude = String[
             # TODO(odow): unexpected failure, probably in the bridge layer
             "test_model_UpperBoundAlreadySet",

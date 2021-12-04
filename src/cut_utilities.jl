@@ -57,14 +57,6 @@ end
 
 # helpers
 
-function _get_value(s_vars::Vector{JuMP.VariableRef}, ::Nothing)
-    return JuMP.value.(s_vars)
-end
-
-function _get_value(s_vars::Vector{JuMP.VariableRef}, cb)
-    return JuMP.callback_value.(cb, s_vars)
-end
-
 function _add_constraint(
     cut::Vector{Float64},
     s_vars::Vector{JuMP.VariableRef},
