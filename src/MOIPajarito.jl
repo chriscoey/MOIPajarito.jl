@@ -6,6 +6,7 @@ include("Cuts/Cuts.jl")
 
 import Printf
 import LinearAlgebra
+import SparseArrays: dropzeros!, sparse, SparseMatrixCSC
 
 import JuMP
 const MOI = JuMP.MOI

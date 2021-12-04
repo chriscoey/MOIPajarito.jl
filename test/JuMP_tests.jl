@@ -11,7 +11,7 @@ import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
     @testset "iterative method" run_jump_tests(true, oa_solver, conic_solver)
-    @testset "OA solver driven method" run_jump_tests(false, oa_solver, conic_solver)
+    # @testset "OA solver driven method" run_jump_tests(false, oa_solver, conic_solver)
     return
 end
 
@@ -73,34 +73,34 @@ function _soc1(opt)
     return
 end
 
-function _soc2(opt)
-    TOL = 1e-4
-    m = JuMP.Model(opt)
+# function _soc2(opt)
+#     TOL = 1e-4
+#     m = JuMP.Model(opt)
 
-    JuMP.@variable(m, x)
-    JuMP.@variable(m, y)
-    JuMP.@variable(m, z <= 2.5, Int)
-    JuMP.@objective(m, Min, x + 2y)
-    JuMP.@constraint(m, [z, x, y] in JuMP.SecondOrderCone())
+#     JuMP.@variable(m, x)
+#     JuMP.@variable(m, y)
+#     JuMP.@variable(m, z <= 2.5, Int)
+#     JuMP.@objective(m, Min, x + 2y)
+#     JuMP.@constraint(m, [z, x, y] in JuMP.SecondOrderCone())
 
-    JuMP.set_integer(x)
-    JuMP.optimize!(m)
-    opt_obj = -1 - 2 * sqrt(3)
-    @test isapprox(JuMP.objective_value(m), opt_obj, atol = TOL)
-    @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
-    @test isapprox(JuMP.value(x), -1, atol = TOL)
-    @test isapprox(JuMP.value(y), -sqrt(3), atol = TOL)
-    @test isapprox(JuMP.value(z), 2, atol = TOL)
+#     JuMP.set_integer(x)
+#     JuMP.optimize!(m)
+#     opt_obj = -1 - 2 * sqrt(3)
+#     @test isapprox(JuMP.objective_value(m), opt_obj, atol = TOL)
+#     @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
+#     @test isapprox(JuMP.value(x), -1, atol = TOL)
+#     @test isapprox(JuMP.value(y), -sqrt(3), atol = TOL)
+#     @test isapprox(JuMP.value(z), 2, atol = TOL)
 
-    JuMP.unset_integer(x)
-    JuMP.optimize!(m)
-    opt_obj = -2 * sqrt(5)
-    @test isapprox(JuMP.objective_value(m), opt_obj, atol = TOL)
-    @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
-    @test isapprox(abs2(JuMP.value(x)) + abs2(JuMP.value(y)), 4, atol = TOL)
-    @test isapprox(JuMP.value(z), 2, atol = TOL)
+#     JuMP.unset_integer(x)
+#     JuMP.optimize!(m)
+#     opt_obj = -2 * sqrt(5)
+#     @test isapprox(JuMP.objective_value(m), opt_obj, atol = TOL)
+#     @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
+#     @test isapprox(abs2(JuMP.value(x)) + abs2(JuMP.value(y)), 4, atol = TOL)
+#     @test isapprox(JuMP.value(z), 2, atol = TOL)
 
-    return
-end
+#     return
+# end
 
 end

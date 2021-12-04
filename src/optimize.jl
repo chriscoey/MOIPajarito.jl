@@ -11,22 +11,27 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_solver::Union{Nothing, MOI.OptimizerWithAttributes}
     conic_solver::Union{Nothing, MOI.OptimizerWithAttributes}
 
+    # optimizers
+    oa_opt::Union{Nothing, MOI.AbstractOptimizer}
+    conic_opt::Union{Nothing, MOI.AbstractOptimizer}
+
     # used by MOI wrapper
     obj_sense::MOI.OptimizationSense
-    zeros_idxs::Vector{UnitRange{Int}}
+    zeros_idxs::Vector{UnitRange{Int}} # TODO needed?
 
-    # model data
+    # problem data
     c::Vector{Float64}
-    A::AbstractMatrix{Float64}
+    A::SparseMatrixCSC{Float64, Int}
     b::Vector{Float64}
-    G::AbstractMatrix{Float64}
+    G::SparseMatrixCSC{Float64, Int}
     h::Vector{Float64}
+    obj_offset::Float64
     cones::Vector{MOI.AbstractVectorSet}
     cone_idxs::Vector{UnitRange{Int}}
 
-    # internal models
-    oa_opt::JuMP.Model
-    conic_opt::JuMP.Model
+    # models
+    oa_model::JuMP.Model
+    conic_model::JuMP.Model
     oa_vars::Vector{VI}
     conic_vars::Vector{VI}
     integer_vars::Vector{VI}
@@ -62,16 +67,15 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.use_iterative_method = use_iterative_method
         opt.oa_solver = oa_solver
         opt.conic_solver = conic_solver
+        opt.oa_opt = nothing
+        opt.conic_opt = nothing
         return _empty_all(opt)
     end
 end
 
 function _empty_all(opt::Optimizer)
-    opt.oa_opt = nothing
-    opt.conic_opt = nothing
     opt.oa_vars = VI[]
     opt.conic_vars = VI[]
-    opt.approx_types = Tuple[]
     opt.incumbent = Float64[]
     _empty_optimize(opt)
     return opt
@@ -86,6 +90,12 @@ function _empty_optimize(opt::Optimizer)
     opt.num_iters = 0
     opt.num_callbacks = 0
     opt.solve_time = NaN
+    if !isnothing(opt.oa_opt)
+        MOI.empty!(opt.oa_opt)
+    end
+    if !isnothing(opt.conic_opt)
+        MOI.empty!(opt.conic_opt)
+    end
     return opt
 end
 
@@ -93,6 +103,7 @@ function _optimize!(opt::Optimizer)
     _start(opt)
 
     # solve continuous relaxation
+    _setup_relaxation(opt)
     relax_finish = solve_relaxation(opt)
     if relax_finish
         _finish(opt)
@@ -100,6 +111,7 @@ function _optimize!(opt::Optimizer)
     end
 
     # add continuous relaxation cuts and initial fixed cuts
+    _setup_oa_model(opt)
     add_subp_cuts(opt)
     # add_init_cuts(opt)
 
@@ -121,9 +133,9 @@ end
 
 # one iteration of the iterative method
 function iterative_method(opt::Optimizer)
-    JuMP.optimize!(opt.oa_opt)
+    JuMP.optimize!(opt.oa_model)
 
-    oa_status = JuMP.termination_status(opt.oa_opt)
+    oa_status = JuMP.termination_status(opt.oa_model)
     if oa_status == MOI.INFEASIBLE
         if opt.verbose
             println("infeasibility detected while iterating; terminating")
@@ -137,7 +149,7 @@ function iterative_method(opt::Optimizer)
     end
 
     # update objective bound
-    opt.obj_bound = JuMP.objective_bound(opt.oa_opt)
+    opt.obj_bound = JuMP.objective_bound(opt.oa_model)
 
     # solve conic subproblem with fixed integer solution and update incumbent
     subp_finish = solve_subproblem(opt)
@@ -235,14 +247,14 @@ function oa_solver_driven_method(opt::Optimizer)
     if opt.verbose
         println("starting OA solver driven method")
     end
-    JuMP.optimize!(opt.oa_opt)
-    oa_status = JuMP.termination_status(opt.oa_opt)
+    JuMP.optimize!(opt.oa_model)
+    oa_status = JuMP.termination_status(opt.oa_model)
 
     # TODO this should come from incumbent updated during lazy callbacks
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
-        opt.obj_value = JuMP.objective_value(opt.oa_opt)
-        opt.obj_bound = JuMP.objective_bound(opt.oa_opt)
+        opt.obj_value = JuMP.objective_value(opt.oa_model)
+        opt.obj_bound = JuMP.objective_bound(opt.oa_model)
         opt.incumbent = JuMP.value.(opt.oa_vars)
     else
         opt.status = oa_status
@@ -256,11 +268,11 @@ function solve_relaxation(opt::Optimizer)
         println("solving continuous relaxation")
     end
 
-    JuMP.optimize!(opt.conic_opt)
-    relax_status = JuMP.termination_status(opt.conic_opt)
+    JuMP.optimize!(opt.conic_model)
+    relax_status = JuMP.termination_status(opt.conic_model)
 
     if relax_status == MOI.OPTIMAL
-        opt.obj_bound = JuMP.dual_objective_value(opt.conic_opt)
+        opt.obj_bound = JuMP.dual_objective_value(opt.conic_model)
         if opt.verbose
             println(
                 "continuous relaxation status is $relax_status " *
@@ -290,7 +302,7 @@ function solve_relaxation(opt::Optimizer)
         end
         if relax_status == MOI.OPTIMAL
             opt.status = relax_status
-            opt.obj_value = JuMP.objective_value(opt.conic_opt)
+            opt.obj_value = JuMP.objective_value(opt.conic_model)
             opt.incumbent = JuMP.value.(opt.conic_vars)
         end
         return true
@@ -313,15 +325,15 @@ function solve_subproblem(opt::Optimizer)
     end
 
     # solve
-    JuMP.optimize!(opt.conic_opt)
-    subp_status = JuMP.termination_status(opt.conic_opt)
+    JuMP.optimize!(opt.conic_model)
+    subp_status = JuMP.termination_status(opt.conic_model)
 
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
 
     if subp_status == MOI.OPTIMAL
-        obj_val = JuMP.objective_value(opt.conic_opt)
+        obj_val = JuMP.objective_value(opt.conic_model)
         if _compare_obj(obj_val, opt.obj_value, opt)
             # update incumbent and objective value
             sol = JuMP.value.(opt.conic_vars)
@@ -340,8 +352,8 @@ end
 
 # initialize and print
 function _start(opt::Optimizer)
-    @assert !isnothing(opt.oa_opt)
-    @assert !isnothing(opt.conic_opt)
+    _conic_opt(opt)
+    _oa_opt(opt)
     _empty_optimize(opt)
     opt.solve_time = time()
 
@@ -359,8 +371,8 @@ end
 function _finish(opt::Optimizer)
     opt.solve_time = time() - opt.solve_time
 
-    if opt.verbose
-        oa_status = JuMP.termination_status(opt.oa_opt)
+    oa_status = MOI.get(opt.oa_opt, MOI.TerminationStatus())
+    if opt.verbose && oa_status != MOI.OPTIMIZE_NOT_CALLED
         println("OA solver finished with status $oa_status, after $(opt.num_cuts) cuts")
         if opt.use_iterative_method
             println("iterative method used $(opt.num_iters) iterations\n")
@@ -395,4 +407,17 @@ function _compare_obj(value::Float64, bound::Float64, opt::Optimizer)
     else
         return (value > bound)
     end
+end
+
+# setup continuous conic relaxation model
+# TODO maybe just add directly in copy_to
+function _setup_relaxation(opt::Optimizer)
+    model = opt.conic_model = JuMP.Model(() -> opt.conic_opt)
+    JuMP.@variable(model, x[1:length(opt.c)])
+    JuMP.@objective(model, Min, JuMP.dot(opt.c, x))
+    JuMP.@constraint(model, opt.A * x .== opt.b)
+    # for
+    #     JuMP.@constraint(model, h - G * x )
+
+    return
 end

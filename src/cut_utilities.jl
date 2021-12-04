@@ -58,19 +58,11 @@ end
 
 # helpers
 
-function _get_value(
-    s_vars::Vector{VI},
-    oa_opt::MOI.ModelLike,
-    ::Nothing,
-    )
+function _get_value(s_vars::Vector{VI}, oa_opt::MOI.ModelLike, ::Nothing)
     return JuMP.value.(s_vars)
 end
 
-function _get_value(
-    s_vars::Vector{VI},
-    oa_opt::MOI.ModelLike,
-    cb,
-    )
+function _get_value(s_vars::Vector{VI}, oa_opt::MOI.ModelLike, cb)
     return JuMP.callback_value.(cb, s_vars)
 end
 
