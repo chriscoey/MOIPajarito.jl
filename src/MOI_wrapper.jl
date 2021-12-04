@@ -58,11 +58,7 @@ function MOI.supports(
     return true
 end
 
-function MOI.supports_constraint(
-    opt::Optimizer,
-    F::Type{VI},
-    S::Type{MOI.Integer},
-)
+function MOI.supports_constraint(opt::Optimizer, F::Type{VI}, S::Type{MOI.Integer})
     return MOI.supports_constraint(_oa_opt(opt), F, S)
 end
 

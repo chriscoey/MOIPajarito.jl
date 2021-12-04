@@ -30,5 +30,4 @@ Test.@testset "Pajarito tests" begin
     Test.@testset "JuMP tests" begin
         TestJuMP.runtests(oa_solver, conic_solver)
     end
-end
-;
+end;

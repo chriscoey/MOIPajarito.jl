@@ -36,7 +36,9 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_model::JuMP.Model
     oa_vars::Vector{JuMP.VariableRef}
     integer_vars::Vector{Int}
-    oa_cones::Vector{Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet}}
+    oa_cones::Vector{
+        Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet},
+    }
 
     # modified throughout optimize and used after optimize
     status::MOI.TerminationStatusCode
@@ -417,7 +419,8 @@ function _setup_models(opt::Optimizer)
     JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
 
     # conic constraints
-    opt.oa_cones = Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet}[]
+    opt.oa_cones =
+        Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet}[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         h_i = opt.h[idxs]
         G_i = opt.G[idxs, :]

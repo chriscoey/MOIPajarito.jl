@@ -18,7 +18,9 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
         MOI.Utilities.CachingOptimizer(
             MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}()),
             MOIPajarito.Optimizer(),
-        ), Float64)
+        ),
+        Float64,
+    )
     MOI.set(model, MOI.Silent(), true)
     MOI.set(model, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
     MOI.set(model, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
@@ -36,10 +38,10 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
                 MOI.VariableBasisStatus,
                 MOI.DualObjectiveValue,
                 MOI.SolverVersion,
-                ],
+            ],
         ),
         include = String[
-            # "test_conic",
+        # "test_conic",
         ],
         exclude = String[
             # TODO(odow): unexpected failure, probably in the bridge layer
