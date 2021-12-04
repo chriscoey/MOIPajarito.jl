@@ -3,10 +3,10 @@
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (ci, s_vars, cone) in opt.zip_cones
+    for (ci, s_vars, cone) in opt.oa_cones
         cuts = Cuts.get_init_cuts(cone)
         for cut in cuts
-            _add_constraint(cut, s_vars, opt.oa_opt, nothing)
+            _add_constraint(cut, s_vars, opt.oa_model, nothing)
         end
         opt.num_cuts += length(cuts)
     end
@@ -16,8 +16,8 @@ end
 # subproblem dual cuts
 function add_subp_cuts(opt::Optimizer, cb = nothing)
     num_cuts_before = opt.num_cuts
-    for (ci, s_vars, cone) in opt.zip_cones
-        # dual = JuMP.dual(ci)
+    for (ci, s_vars, cone) in opt.oa_cones
+        dual = JuMP.dual(ci)
         @assert !any(isnan, dual)
 
         # TODO tune
@@ -29,12 +29,10 @@ function add_subp_cuts(opt::Optimizer, cb = nothing)
             # rescale dual to have norm 1
             LinearAlgebra.lmul!(inv(norm_dual), dual)
         end
-        @show dual
 
         cuts = Cuts.get_subp_cuts(dual, cone, opt.tol_feas)
         for cut in cuts
-            @show cut
-            _add_constraint(cut, s_vars, opt.oa_opt, cb)
+            _add_constraint(cut, s_vars, opt.oa_model, cb)
         end
         opt.num_cuts += length(cuts)
     end
@@ -44,12 +42,13 @@ end
 # separation cuts
 function add_sep_cuts(opt::Optimizer, cb = nothing)
     num_cuts_before = opt.num_cuts
-    for (ci, s_vars, cone) in opt.zip_cones
-        prim = _get_value(s_vars)
+    for (ci, s_vars, cone) in opt.oa_cones
+        prim = _get_value(s_vars, cb)
         @assert !any(isnan, prim)
+
         cuts = Cuts.get_sep_cuts(prim, cone, opt.tol_feas)
         for cut in cuts
-            _add_constraint(cut, s_vars, opt.oa_opt, cb)
+            _add_constraint(cut, s_vars, opt.oa_model, cb)
         end
         opt.num_cuts += length(cuts)
     end
@@ -58,29 +57,29 @@ end
 
 # helpers
 
-function _get_value(s_vars::Vector{VI}, oa_opt::MOI.ModelLike, ::Nothing)
+function _get_value(s_vars::Vector{JuMP.VariableRef}, ::Nothing)
     return JuMP.value.(s_vars)
 end
 
-function _get_value(s_vars::Vector{VI}, oa_opt::MOI.ModelLike, cb)
+function _get_value(s_vars::Vector{JuMP.VariableRef}, cb)
     return JuMP.callback_value.(cb, s_vars)
 end
 
 function _add_constraint(
     cut::Vector{Float64},
-    s_vars::Vector{VI},
-    oa_opt::MOI.ModelLike,
+    s_vars::Vector{JuMP.VariableRef},
+    oa_model::JuMP.Model,
     ::Nothing,
 )
-    return JuMP.@constraint(oa_opt, JuMP.dot(cut, s_vars) >= 0)
+    return JuMP.@constraint(oa_model, JuMP.dot(cut, s_vars) >= 0)
 end
 
 function _add_constraint(
     cut::Vector{Float64},
-    s_vars::Vector{VI},
-    oa_opt::MOI.ModelLike,
+    s_vars::Vector{JuMP.VariableRef},
+    oa_model::JuMP.Model,
     cb,
 )
     con = JuMP.@build_constraint(JuMP.dot(cut, s_vars) >= 0)
-    return MOI.submit(oa_opt, MOI.LazyConstraint(cb), con)
+    return MOI.submit(oa_model, MOI.LazyConstraint(cb), con)
 end

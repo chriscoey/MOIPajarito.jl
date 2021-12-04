@@ -102,7 +102,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
 
     # integer variables
     cis = MOI.get(src, MOI.ListOfConstraintIndices{VI, MOI.Integer}())
-    opt.integer_vars = VI[VI(ci.value) for ci in cis]
+    opt.integer_vars = [idx_map[VI(ci.value)].value for ci in cis]
 
     # objective
     opt.obj_sense = MOI.MIN_SENSE
@@ -145,7 +145,8 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     opt.zeros_idxs = zeros_idxs = Vector{UnitRange{Int}}()
     for F in (VV, VAF), ci in get_src_cons(F, MOI.Zeros)
         fi = get_con_fun(ci)
-        _con_IJV(IA, JA, VA, model_b, zeros_idxs, fi, idx_map)
+        idxs = _con_IJV(IA, JA, VA, model_b, fi, idx_map)
+        push!(zeros_idxs, idxs)
         idx_map[ci] = ci
     end
     opt.A = dropzeros!(sparse(IA, JA, VA, length(model_b), n))
@@ -200,6 +201,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     opt.h = model_h
     opt.cones = cones
     opt.cone_idxs = cone_idxs
+    opt.incumbent = fill(NaN, length(model_c))
 
     return idx_map
 end
@@ -231,7 +233,6 @@ function MOI.get(opt::Optimizer, attr::MOI.ObjectiveValue)
 end
 
 function MOI.get(opt::Optimizer, attr::MOI.ObjectiveBound)
-    MOI.check_result_index_bounds(opt, attr)
     return _sense_val(opt.obj_sense) * opt.obj_bound
 end
 

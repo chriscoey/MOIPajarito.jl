@@ -12,10 +12,10 @@ oa_solver = MOI.OptimizerWithAttributes(
     "tol_bnd" => 1e-8,
     "mip_gap" => 0.0,
 )
-# import ECOS
-# conic_solver = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
-import Hypatia
-conic_solver = MOI.OptimizerWithAttributes(Hypatia.Optimizer, MOI.Silent() => true)
+import ECOS
+conic_solver = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
+# import Hypatia
+# conic_solver = MOI.OptimizerWithAttributes(Hypatia.Optimizer, MOI.Silent() => true)
 
 
 # include("MOI_tests.jl")

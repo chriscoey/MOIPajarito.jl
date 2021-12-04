@@ -30,13 +30,13 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     cone_idxs::Vector{UnitRange{Int}}
 
     # models
+    relax_model::JuMP.Model
+    subp_model::JuMP.Model
+    subp_vars::Vector{JuMP.VariableRef}
     oa_model::JuMP.Model
-    conic_model::JuMP.Model
-    oa_vars::Vector{VI}
-    conic_vars::Vector{VI}
-    integer_vars::Vector{VI}
-    # approx_types::Vector{Tuple}
-    # approx_cons::Vector{Tuple{CI, Union{VV, VAF}, MOI.AbstractVectorSet}}
+    oa_vars::Vector{JuMP.VariableRef}
+    integer_vars::Vector{Int}
+    oa_cones::Vector{Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet}}
 
     # modified throughout optimize and used after optimize
     status::MOI.TerminationStatusCode
@@ -75,7 +75,7 @@ end
 
 function _empty_all(opt::Optimizer)
     opt.oa_vars = VI[]
-    opt.conic_vars = VI[]
+    opt.subp_vars = VI[]
     opt.incumbent = Float64[]
     _empty_optimize(opt)
     return opt
@@ -83,7 +83,6 @@ end
 
 function _empty_optimize(opt::Optimizer)
     opt.status = MOI.OPTIMIZE_NOT_CALLED
-    fill!(opt.incumbent, NaN)
     opt.obj_value = NaN
     opt.obj_bound = NaN
     opt.num_cuts = 0
@@ -101,9 +100,9 @@ end
 
 function _optimize!(opt::Optimizer)
     _start(opt)
+    _setup_models(opt)
 
     # solve continuous relaxation
-    _setup_relaxation(opt)
     relax_finish = solve_relaxation(opt)
     if relax_finish
         _finish(opt)
@@ -111,9 +110,8 @@ function _optimize!(opt::Optimizer)
     end
 
     # add continuous relaxation cuts and initial fixed cuts
-    _setup_oa_model(opt)
     add_subp_cuts(opt)
-    # add_init_cuts(opt)
+    add_init_cuts(opt)
 
     if opt.use_iterative_method
         # solve using iterative method
@@ -268,11 +266,11 @@ function solve_relaxation(opt::Optimizer)
         println("solving continuous relaxation")
     end
 
-    JuMP.optimize!(opt.conic_model)
-    relax_status = JuMP.termination_status(opt.conic_model)
+    JuMP.optimize!(opt.relax_model)
+    relax_status = JuMP.termination_status(opt.relax_model)
 
     if relax_status == MOI.OPTIMAL
-        opt.obj_bound = JuMP.dual_objective_value(opt.conic_model)
+        opt.obj_bound = JuMP.dual_objective_value(opt.relax_model)
         if opt.verbose
             println(
                 "continuous relaxation status is $relax_status " *
@@ -302,8 +300,8 @@ function solve_relaxation(opt::Optimizer)
         end
         if relax_status == MOI.OPTIMAL
             opt.status = relax_status
-            opt.obj_value = JuMP.objective_value(opt.conic_model)
-            opt.incumbent = JuMP.value.(opt.conic_vars)
+            opt.obj_value = JuMP.objective_value(opt.relax_model)
+            opt.incumbent = JuMP.value.(opt.subp_vars)
         end
         return true
     end
@@ -315,28 +313,27 @@ end
 # TODO handle non-equal bounds in lazy callback
 function solve_subproblem(opt::Optimizer)
     # update integer bounds
-    for vi in opt.integer_vars
-        val = JuMP.value(vi)
+    for i in opt.integer_vars
+        x_i = opt.oa_vars[i]
+        val = JuMP.value(x_i)
         @assert val ≈ round(val)
-        @show vi
-        @show val
         # TODO map oa var to conic var
-        JuMP.fix(vi, val; force = true)
+        JuMP.fix(opt.subp_vars[i], val; force = true)
     end
 
     # solve
-    JuMP.optimize!(opt.conic_model)
-    subp_status = JuMP.termination_status(opt.conic_model)
+    JuMP.optimize!(opt.relax_model)
+    subp_status = JuMP.termination_status(opt.relax_model)
 
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
 
     if subp_status == MOI.OPTIMAL
-        obj_val = JuMP.objective_value(opt.conic_model)
+        obj_val = JuMP.objective_value(opt.relax_model)
         if _compare_obj(obj_val, opt.obj_value, opt)
             # update incumbent and objective value
-            sol = JuMP.value.(opt.conic_vars)
+            sol = JuMP.value.(opt.subp_vars)
             copyto!(opt.incumbent, sol)
             opt.obj_value = obj_val
         end
@@ -409,15 +406,48 @@ function _compare_obj(value::Float64, bound::Float64, opt::Optimizer)
     end
 end
 
-# setup continuous conic relaxation model
+# setup conic and OA models
 # TODO maybe just add directly in copy_to
-function _setup_relaxation(opt::Optimizer)
-    model = opt.conic_model = JuMP.Model(() -> opt.conic_opt)
-    JuMP.@variable(model, x[1:length(opt.c)])
-    JuMP.@objective(model, Min, JuMP.dot(opt.c, x))
-    JuMP.@constraint(model, opt.A * x .== opt.b)
-    # for
-    #     JuMP.@constraint(model, h - G * x )
+function _setup_models(opt::Optimizer)
+    # continuous relaxation model
+    relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
+    x_relax = JuMP.@variable(relax, [1:length(opt.c)])
+    JuMP.@objective(relax, Min, JuMP.dot(opt.c, x_relax))
+    JuMP.@constraint(relax, opt.A * x_relax .== opt.b)
 
+    # continuous subproblem model
+    opt.subp_model = relax
+    opt.subp_vars = x_relax
+    # TODO delete integer vars
+    # subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
+    # x_subp = JuMP.@variable(subp, [1:length(opt.c)])
+    # opt.subp_vars = x_subp
+    # JuMP.@objective(subp, Min, JuMP.dot(opt.c, x_subp))
+    # JuMP.@constraint(subp, opt.A * x_subp .== opt.b)
+
+    # mixed-integer OA model
+    oa = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
+    x_oa = JuMP.@variable(oa, [1:length(opt.c)])
+    opt.oa_vars = x_oa
+    for i in opt.integer_vars
+        JuMP.set_integer(x_oa[i])
+    end
+    JuMP.@objective(oa, Min, JuMP.dot(opt.c, x_oa))
+    JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
+
+    # conic constraints
+    opt.oa_cones = Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet}[]
+    for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
+        h_i = opt.h[idxs]
+        G_i = opt.G[idxs, :]
+        K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
+        if MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
+            JuMP.@constraint(oa, h_i - G_i * x_oa in cone)
+        else
+            s_i = JuMP.@variable(oa, [1:length(idxs)])
+            JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
+            push!(opt.oa_cones, (K_relax_i, s_i, cone))
+        end
+    end
     return
 end
