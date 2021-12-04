@@ -18,14 +18,16 @@ conic_solver = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 # conic_solver = MOI.OptimizerWithAttributes(Hypatia.Optimizer, MOI.Silent() => true)
 
 
-# include("MOI_tests.jl")
-# println("starting MOI tests")
-# Test.@testset "MOI tests" begin
-#     TestMOI.runtests(oa_solver, conic_solver)
-# end
+include("MOI_tests.jl")
+println("starting MOI tests")
+Test.@testset "MOI tests" begin
+    TestMOI.runtests(oa_solver, conic_solver)
+end
+;
 
 include("JuMP_tests.jl")
 println("starting JuMP tests")
 Test.@testset "JuMP tests" begin
     TestJuMP.runtests(oa_solver, conic_solver)
 end
+;

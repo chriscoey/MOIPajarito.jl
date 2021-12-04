@@ -18,7 +18,7 @@ end
 function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
     opt = JuMP.optimizer_with_attributes(
         MOIPajarito.Optimizer,
-        # "verbose" => false,
+        "verbose" => false,
         "use_iterative_method" => use_iter,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,

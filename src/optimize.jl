@@ -100,7 +100,13 @@ end
 
 function _optimize!(opt::Optimizer)
     _start(opt)
-    _setup_models(opt)
+
+    # setup models
+    setup_finish = _setup_models(opt)
+    if setup_finish
+        _finish(opt)
+        return
+    end
 
     # solve continuous relaxation
     relax_finish = solve_relaxation(opt)
@@ -147,7 +153,7 @@ function iterative_method(opt::Optimizer)
     end
 
     # update objective bound
-    opt.obj_bound = JuMP.objective_bound(opt.oa_model)
+    opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
 
     # solve conic subproblem with fixed integer solution and update incumbent
     subp_finish = solve_subproblem(opt)
@@ -251,8 +257,8 @@ function oa_solver_driven_method(opt::Optimizer)
     # TODO this should come from incumbent updated during lazy callbacks
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
-        opt.obj_value = JuMP.objective_value(opt.oa_model)
-        opt.obj_bound = JuMP.objective_bound(opt.oa_model)
+        opt.obj_value = JuMP.objective_value(opt.oa_model) + opt.obj_offset
+        opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
         opt.incumbent = JuMP.value.(opt.oa_vars)
     else
         opt.status = oa_status
@@ -270,7 +276,7 @@ function solve_relaxation(opt::Optimizer)
     relax_status = JuMP.termination_status(opt.relax_model)
 
     if relax_status == MOI.OPTIMAL
-        opt.obj_bound = JuMP.dual_objective_value(opt.relax_model)
+        opt.obj_bound = JuMP.dual_objective_value(opt.relax_model) + opt.obj_offset
         if opt.verbose
             println(
                 "continuous relaxation status is $relax_status " *
@@ -279,8 +285,9 @@ function solve_relaxation(opt::Optimizer)
         end
     elseif relax_status == MOI.DUAL_INFEASIBLE
         if opt.verbose
-            println("continuous relaxation status is $relax_status; Pajarito may fail")
+            println("continuous relaxation status is $relax_status")
         end
+        opt.status = relax_status
     elseif relax_status == MOI.INFEASIBLE
         if opt.verbose
             println("infeasibility detected from continuous relaxation; terminating")
@@ -300,7 +307,7 @@ function solve_relaxation(opt::Optimizer)
         end
         if relax_status == MOI.OPTIMAL
             opt.status = relax_status
-            opt.obj_value = JuMP.objective_value(opt.relax_model)
+            opt.obj_value = JuMP.objective_value(opt.relax_model) + opt.obj_offset
             opt.incumbent = JuMP.value.(opt.subp_vars)
         end
         return true
@@ -330,7 +337,7 @@ function solve_subproblem(opt::Optimizer)
     end
 
     if subp_status == MOI.OPTIMAL
-        obj_val = JuMP.objective_value(opt.relax_model)
+        obj_val = JuMP.objective_value(opt.relax_model) + opt.obj_offset
         if _compare_obj(obj_val, opt.obj_value, opt)
             # update incumbent and objective value
             sol = JuMP.value.(opt.subp_vars)
@@ -449,5 +456,23 @@ function _setup_models(opt::Optimizer)
             push!(opt.oa_cones, (K_relax_i, s_i, cone))
         end
     end
-    return
+
+    if !isempty(opt.oa_cones)
+        return false
+    end
+
+    # no conic constraints need outer approximation, so just solve the OA model and finish
+    if opt.verbose
+        println("no conic constraints need outer approximation")
+    end
+
+    JuMP.optimize!(opt.oa_model)
+    opt.status = JuMP.termination_status(opt.oa_model)
+    if opt.status == MOI.OPTIMAL
+        opt.obj_value = JuMP.objective_value(opt.oa_model) + opt.obj_offset
+        opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
+        opt.incumbent = JuMP.value.(opt.oa_vars)
+    end
+
+    return true
 end
