@@ -7,11 +7,19 @@ const MOI = MathOptInterface
 import GLPK
 oa_solver = MOI.OptimizerWithAttributes(
     GLPK.Optimizer,
-    "msg_lev" => 0,
+    MOI.Silent() => true,
     "tol_int" => 1e-9,
     "tol_bnd" => 1e-9,
     "mip_gap" => 1e-9,
 )
+# import Cbc
+# oa_solver = MOI.OptimizerWithAttributes(
+#     Cbc.Optimizer,
+#     MOI.Silent() => true,
+#     "integerTolerance" => 1e-9,
+#     "primalTolerance" => 1e-9,
+#     "ratioGap" => 1e-9,
+# )
 
 import ECOS
 conic_solver = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)

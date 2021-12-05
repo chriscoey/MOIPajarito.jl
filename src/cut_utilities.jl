@@ -73,7 +73,7 @@ function _add_constraint(
 )
     # only add cut if violated (per JuMP documentation)
     expr = JuMP.dot(cut, s_vars)
-    if JuMP.callback_value(cb, expr) < opt.tol_feas
+    if JuMP.callback_value(cb, expr) < -opt.tol_feas
         con = JuMP.@build_constraint(expr >= 0)
         MOI.submit(opt.oa_model, MOI.LazyConstraint(cb), con)
         return 1
