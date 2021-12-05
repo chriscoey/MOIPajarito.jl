@@ -9,7 +9,7 @@ import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
     @testset "iterative method" run_moi_tests(true, oa_solver, conic_solver)
-    @testset "OA solver driven method" run_moi_tests(false, oa_solver, conic_solver)
+    @testset "one tree method" run_moi_tests(false, oa_solver, conic_solver)
     return
 end
 

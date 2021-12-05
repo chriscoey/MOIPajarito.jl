@@ -1,13 +1,11 @@
-#=
-MathOptInterface wrapper of Pajarito solver
-=#
+# MathOptInterface wrapper of Pajarito solver
 
 _is_empty(::Nothing) = true
 _is_empty(opt::MOI.AbstractOptimizer) = MOI.is_empty(opt)
 
 MOI.is_empty(opt::Optimizer) = (_is_empty(opt.oa_opt) && _is_empty(opt.conic_opt))
 
-MOI.empty!(opt::Optimizer) = _empty_all(opt)
+MOI.empty!(opt::Optimizer) = empty_all(opt)
 
 MOI.get(::Optimizer, ::MOI.SolverName) = "Pajarito"
 
@@ -59,15 +57,15 @@ function MOI.supports(
 end
 
 function MOI.supports_constraint(opt::Optimizer, F::Type{VI}, S::Type{MOI.Integer})
-    return MOI.supports_constraint(_oa_opt(opt), F, S)
+    return MOI.supports_constraint(get_oa_opt(opt), F, S)
 end
 
 function MOI.supports_constraint(
     opt::Optimizer,
     F::Type{<:Union{VV, VAF}},
-    S::Type{<:Union{MOI.Zeros, MOI.AbstractVectorSet}},
+    S::Type{<:Union{MOI.Zeros, AVS}},
 )
-    return MOI.supports_constraint(_conic_opt(opt), F, S)
+    return MOI.supports_constraint(get_conic_opt(opt), F, S)
 end
 
 MOI.supports(::Optimizer, ::MOI.VariablePrimalStart, ::Type{VI}) = true
@@ -141,23 +139,23 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     opt.zeros_idxs = zeros_idxs = Vector{UnitRange{Int}}()
     for F in (VV, VAF), ci in get_src_cons(F, MOI.Zeros)
         fi = get_con_fun(ci)
-        idxs = _con_IJV(IA, JA, VA, model_b, fi, idx_map)
+        idxs = _constraint_IJV(IA, JA, VA, model_b, fi, idx_map)
         push!(zeros_idxs, idxs)
         idx_map[ci] = ci
     end
-    opt.A = dropzeros!(sparse(IA, JA, VA, length(model_b), n))
+    opt.A = SparseArrays.dropzeros!(SparseArrays.sparse(IA, JA, VA, length(model_b), n))
     opt.b = model_b
 
     # conic constraints
     (IG, JG, VG) = (Int[], Int[], Float64[])
     model_h = Float64[]
-    cones = MOI.AbstractVectorSet[]
+    cones = AVS[]
     cone_idxs = Vector{UnitRange{Int}}()
 
     # build up one nonnegative cone
     for F in (VV, VAF), ci in get_src_cons(F, MOI.Nonnegatives)
         fi = get_con_fun(ci)
-        _con_IJV(IG, JG, VG, model_h, fi, idx_map)
+        _constraint_IJV(IG, JG, VG, model_h, fi, idx_map)
         idx_map[ci] = ci
     end
     if !isempty(model_h)
@@ -185,7 +183,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
 
         for ci in get_src_cons(F, S)
             fi = get_con_fun(ci)
-            idxs = _con_IJV(IG, JG, VG, model_h, fi, idx_map)
+            idxs = _constraint_IJV(IG, JG, VG, model_h, fi, idx_map)
             push!(cone_idxs, idxs)
             si = get_con_set(ci)
             push!(cones, si)
@@ -193,7 +191,9 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
         end
     end
 
-    opt.G = dropzeros!(sparse(IG, JG, VG, length(model_h), length(model_c)))
+    opt.G = SparseArrays.dropzeros!(
+        SparseArrays.sparse(IG, JG, VG, length(model_h), length(model_c)),
+    )
     opt.h = model_h
     opt.cones = cones
     opt.cone_idxs = cone_idxs
@@ -202,7 +202,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     return idx_map
 end
 
-MOI.optimize!(opt::Optimizer) = _optimize!(opt)
+MOI.optimize!(opt::Optimizer) = optimize(opt)
 
 MOI.get(opt::Optimizer, ::MOI.TerminationStatus) = opt.status
 
@@ -239,7 +239,7 @@ function MOI.get(opt::Optimizer, attr::MOI.VariablePrimal, vi::VI)
     return opt.incumbent[vi.value]
 end
 
-function _con_IJV(
+function _constraint_IJV(
     IM::Vector{Int},
     JM::Vector{Int},
     VM::Vector,
@@ -256,7 +256,7 @@ function _con_IJV(
     return idxs
 end
 
-function _con_IJV(
+function _constraint_IJV(
     IM::Vector{Int},
     JM::Vector{Int},
     VM::Vector,
@@ -273,7 +273,7 @@ function _con_IJV(
     return start .+ (1:dim)
 end
 
-function _oa_opt(opt::Optimizer)
+function get_oa_opt(opt::Optimizer)
     if isnothing(opt.oa_opt)
         if isnothing(opt.oa_solver)
             error("No outer approximation solver specified (set `oa_solver`)")
@@ -282,7 +282,7 @@ function _oa_opt(opt::Optimizer)
         # check whether lazy constraints are supported
         supports_lazy = MOI.supports(opt.oa_opt, MOI.LazyConstraintCallback())
         if isnothing(opt.use_iterative_method)
-            # default to OA-solver-driven method if possible
+            # default to one tree method if possible
             opt.use_iterative_method = !supports_lazy
         elseif !opt.use_iterative_method && !supports_lazy
             error(
@@ -294,7 +294,7 @@ function _oa_opt(opt::Optimizer)
     return opt.oa_opt
 end
 
-function _conic_opt(opt::Optimizer)
+function get_conic_opt(opt::Optimizer)
     if isnothing(opt.conic_opt)
         if isnothing(opt.conic_solver)
             error("No primal-dual conic solver specified (set `conic_solver`)")

@@ -21,24 +21,22 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
 
     # problem data
     c::Vector{Float64}
-    A::SparseMatrixCSC{Float64, Int}
+    A::SparseArrays.SparseMatrixCSC{Float64, Int}
     b::Vector{Float64}
-    G::SparseMatrixCSC{Float64, Int}
+    G::SparseArrays.SparseMatrixCSC{Float64, Int}
     h::Vector{Float64}
     obj_offset::Float64
-    cones::Vector{MOI.AbstractVectorSet}
+    cones::Vector{AVS}
     cone_idxs::Vector{UnitRange{Int}}
 
     # models
     relax_model::JuMP.Model
     subp_model::JuMP.Model
-    subp_vars::Vector{JuMP.VariableRef}
+    subp_vars::Vector{VR}
     oa_model::JuMP.Model
-    oa_vars::Vector{JuMP.VariableRef}
+    oa_vars::Vector{VR}
     integer_vars::Vector{Int}
-    oa_cones::Vector{
-        Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet},
-    }
+    oa_cones::Vector{Tuple{CR, Vector{VR}, AVS}}
 
     # modified throughout optimize and used after optimize
     status::MOI.TerminationStatusCode
@@ -47,8 +45,9 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     obj_bound::Float64
     num_cuts::Int
     num_iters::Int
-    num_lazy_callbacks::Int
-    num_heuristic_callbacks::Int
+    lazy_cb::Any
+    num_lazy_cbs::Int
+    num_heuristic_cbs::Int
     new_incumbent::Bool
     solve_time::Float64
 
@@ -73,26 +72,27 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.conic_solver = conic_solver
         opt.oa_opt = nothing
         opt.conic_opt = nothing
-        return _empty_all(opt)
+        return empty_all(opt)
     end
 end
 
-function _empty_all(opt::Optimizer)
+function empty_all(opt::Optimizer)
     opt.oa_vars = VI[]
     opt.subp_vars = VI[]
     opt.incumbent = Float64[]
-    _empty_optimize(opt)
+    empty_optimize(opt)
     return opt
 end
 
-function _empty_optimize(opt::Optimizer)
+function empty_optimize(opt::Optimizer)
     opt.status = MOI.OPTIMIZE_NOT_CALLED
     opt.obj_value = NaN
     opt.obj_bound = NaN
     opt.num_cuts = 0
     opt.num_iters = 0
-    opt.num_lazy_callbacks = 0
-    opt.num_heuristic_callbacks = 0
+    opt.lazy_cb = nothing
+    opt.num_lazy_cbs = 0
+    opt.num_heuristic_cbs = 0
     opt.new_incumbent = false
     opt.solve_time = NaN
     if !isnothing(opt.oa_opt)
@@ -104,20 +104,20 @@ function _empty_optimize(opt::Optimizer)
     return opt
 end
 
-function _optimize!(opt::Optimizer)
-    _start(opt)
+function optimize(opt::Optimizer)
+    start_optimize(opt)
 
     # setup models
-    setup_finish = _setup_models(opt)
+    setup_finish = setup_models(opt)
     if setup_finish
-        _finish(opt)
+        finish_optimize(opt)
         return
     end
 
     # solve continuous relaxation
     relax_finish = solve_relaxation(opt)
     if relax_finish
-        _finish(opt)
+        finish_optimize(opt)
         return
     end
 
@@ -129,20 +129,20 @@ function _optimize!(opt::Optimizer)
         # solve using iterative method
         while true
             opt.num_iters += 1
-            finish_iter = iterative_method(opt)
+            finish_iter = run_iterative_method(opt)
             finish_iter && break
         end
     else
-        # solve using OA solver driven method
-        oa_solver_driven_method(opt)
+        # solve using one tree method
+        run_one_tree_method(opt)
     end
 
-    _finish(opt)
+    finish_optimize(opt)
     return
 end
 
 # one iteration of the iterative method
-function iterative_method(opt::Optimizer)
+function run_iterative_method(opt::Optimizer)
     time_left = opt.time_limit - time() + opt.solve_time
     JuMP.set_time_limit_sec(opt.oa_model, time_left)
     JuMP.optimize!(opt.oa_model)
@@ -168,7 +168,7 @@ function iterative_method(opt::Optimizer)
     subp_finish && return true
 
     # print and check convergence
-    obj_rel_gap = _obj_rel_gap(opt)
+    obj_rel_gap = get_obj_rel_gap(opt)
     if opt.verbose
         Printf.@printf(
             "%5d %8d %12.4e %12.4e %12.4e\n",
@@ -212,27 +212,28 @@ function iterative_method(opt::Optimizer)
     return false
 end
 
-# OA solver driven method using callbacks
-function oa_solver_driven_method(opt::Optimizer)
+# one tree method using callbacks
+function run_one_tree_method(opt::Optimizer)
     function lazy_cb(cb)
-        opt.num_lazy_callbacks += 1
+        opt.num_lazy_cbs += 1
         cb_status = JuMP.callback_node_status(cb, opt.oa_model)
         if cb_status != MOI.CALLBACK_NODE_STATUS_INTEGER
             # only solve subproblem at an integer solution
             return
         end
+        opt.lazy_cb = cb
 
         # TODO check if integer solution is repeated and cache the cuts
         # (including those not added the first time because not violated)
-        solve_subproblem(opt, cb)
-        add_subp_sep_cuts(opt, cb)
+        solve_subproblem(opt)
+        add_subp_sep_cuts(opt)
         # TODO if no sep cuts are added, could take the solution as a new incumbent if best
         return
     end
     MOI.set(opt.oa_model, MOI.LazyConstraintCallback(), lazy_cb)
 
     function heuristic_cb(cb)
-        opt.num_heuristic_callbacks += 1
+        opt.num_heuristic_cbs += 1
         if !opt.new_incumbent
             return
         end
@@ -246,7 +247,7 @@ function oa_solver_driven_method(opt::Optimizer)
     MOI.set(opt.oa_model, MOI.HeuristicCallback(), heuristic_cb)
 
     if opt.verbose
-        println("starting OA solver driven method")
+        println("starting one tree method")
     end
     time_left = opt.time_limit - time() + opt.solve_time
     JuMP.set_time_limit_sec(opt.oa_model, time_left)
@@ -315,11 +316,11 @@ end
 
 # solve subproblem with new integer variable bounds
 # TODO handle non-equal bounds in lazy callback
-function solve_subproblem(opt::Optimizer, cb = nothing)
+function solve_subproblem(opt::Optimizer)
     # update integer bounds
     for i in opt.integer_vars
         x_i = opt.oa_vars[i]
-        val = _get_value(x_i, cb)
+        val = get_value(x_i, opt.lazy_cb)
         @assert val ≈ round(val) # TODO
         # TODO map oa var to conic var
         JuMP.fix(opt.subp_vars[i], val; force = true)
@@ -335,7 +336,7 @@ function solve_subproblem(opt::Optimizer, cb = nothing)
 
     if subp_status == MOI.OPTIMAL
         obj_val = JuMP.objective_value(opt.subp_model) + opt.obj_offset
-        if _compare_obj(obj_val, opt.obj_value, opt)
+        if compare_obj(obj_val, opt.obj_value, opt)
             # update incumbent and objective value
             sol = JuMP.value.(opt.subp_vars)
             copyto!(opt.incumbent, sol)
@@ -354,10 +355,10 @@ function solve_subproblem(opt::Optimizer, cb = nothing)
 end
 
 # initialize and print
-function _start(opt::Optimizer)
-    _conic_opt(opt)
-    _oa_opt(opt)
-    _empty_optimize(opt)
+function start_optimize(opt::Optimizer)
+    get_conic_opt(opt)
+    get_oa_opt(opt)
+    empty_optimize(opt)
     opt.solve_time = time()
 
     if opt.obj_sense == MOI.MIN_SENSE
@@ -371,7 +372,7 @@ function _start(opt::Optimizer)
 end
 
 # finalize and print
-function _finish(opt::Optimizer)
+function finish_optimize(opt::Optimizer)
     opt.solve_time = time() - opt.solve_time
 
     oa_status = MOI.get(opt.oa_opt, MOI.TerminationStatus())
@@ -384,8 +385,8 @@ function _finish(opt::Optimizer)
             println("iterative method used $(opt.num_iters) iterations\n")
         else
             println(
-                "OA solver driven method used $(opt.num_lazy_callbacks) lazy " *
-                "callbacks and $(opt.num_heuristic_callbacks) heuristic callbacks\n",
+                "one tree method used $(opt.num_lazy_cbs) lazy " *
+                "callbacks and $(opt.num_heuristic_cbs) heuristic callbacks\n",
             )
         end
     end
@@ -395,7 +396,7 @@ end
 
 # compute objective relative gap
 # TODO decide whether to use 1e-5 constant
-function _obj_rel_gap(opt::Optimizer)
+function get_obj_rel_gap(opt::Optimizer)
     if opt.obj_sense == MOI.FEASIBILITY_SENSE
         return NaN
     end
@@ -408,7 +409,7 @@ function _obj_rel_gap(opt::Optimizer)
 end
 
 # return true if objective value and bound are incompatible, else false
-function _compare_obj(value::Float64, bound::Float64, opt::Optimizer)
+function compare_obj(value::Float64, bound::Float64, opt::Optimizer)
     if opt.obj_sense == MOI.FEASIBILITY_SENSE
         return false
     elseif opt.obj_sense == MOI.MIN_SENSE
@@ -420,7 +421,7 @@ end
 
 # setup conic and OA models
 # TODO maybe just add directly in copy_to
-function _setup_models(opt::Optimizer)
+function setup_models(opt::Optimizer)
     # continuous relaxation model
     relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
     x_relax = JuMP.@variable(relax, [1:length(opt.c)])
@@ -448,8 +449,7 @@ function _setup_models(opt::Optimizer)
     JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
 
     # conic constraints
-    opt.oa_cones =
-        Tuple{JuMP.ConstraintRef, Vector{JuMP.VariableRef}, MOI.AbstractVectorSet}[]
+    opt.oa_cones = Tuple{CR, Vector{VR}, AVS}[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         h_i = opt.h[idxs]
         G_i = opt.G[idxs, :]
@@ -483,15 +483,15 @@ function _setup_models(opt::Optimizer)
     return true
 end
 
-function add_subp_sep_cuts(opt::Optimizer, cb = nothing)
-    subp_cuts_added = add_subp_cuts(opt, cb)
+function add_subp_sep_cuts(opt::Optimizer)
+    subp_cuts_added = add_subp_cuts(opt)
     if !subp_cuts_added
         if opt.verbose
             println("subproblem cuts could not be added")
         end
 
         # try separation cuts
-        cuts_added = add_sep_cuts(opt, cb)
+        cuts_added = add_sep_cuts(opt)
         if !cuts_added
             if opt.verbose
                 println("separation cuts could not be added")
@@ -504,18 +504,52 @@ function add_subp_sep_cuts(opt::Optimizer, cb = nothing)
     return false
 end
 
-function _get_value(var::JuMP.VariableRef, ::Nothing)
+function get_value(var::VR, ::Nothing)
     return JuMP.value(var)
 end
 
-function _get_value(var::JuMP.VariableRef, cb)
+function get_value(var::VR, cb)
     return JuMP.callback_value(cb, var)
 end
 
-function _get_value(vars::Vector{JuMP.VariableRef}, ::Nothing)
+function get_value(vars::Vector{VR}, ::Nothing)
     return JuMP.value.(vars)
 end
 
-function _get_value(vars::Vector{JuMP.VariableRef}, cb)
+function get_value(vars::Vector{VR}, cb)
     return JuMP.callback_value.(cb, vars)
+end
+
+# initial fixed cuts
+function add_init_cuts(opt::Optimizer)
+    for (_, s_vars, cone) in opt.oa_cones
+        opt.num_cuts += Cuts.add_init_cuts(opt, s_vars, cone)
+    end
+    return nothing
+end
+
+# subproblem dual cuts
+# TODO save the list of cut expressions (all, even if not added this round)
+# to add at repeated integral solutions.
+function add_subp_cuts(opt::Optimizer)
+    num_cuts_before = opt.num_cuts
+    for (ci, s_vars, cone) in opt.oa_cones
+        z = JuMP.dual(ci)
+        # z_norm = LinearAlgebra.norm(z, Inf)
+        # if isnan(z_norm) || z_norm < opt.tol_feas # TODO tune
+        #     continue # discard duals with small norm
+        # end
+        opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
+    end
+    return (opt.num_cuts > num_cuts_before)
+end
+
+# separation cuts
+function add_sep_cuts(opt::Optimizer)
+    num_cuts_before = opt.num_cuts
+    for (ci, s_vars, cone) in opt.oa_cones
+        s = get_value(s_vars, opt.lazy_cb)
+        opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
+    end
+    return (opt.num_cuts > num_cuts_before)
 end
