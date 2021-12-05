@@ -10,8 +10,12 @@ import JuMP
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    @testset "iterative method" run_jump_tests(true, oa_solver, conic_solver)
-    @testset "one tree method" run_jump_tests(false, oa_solver, conic_solver)
+    @testset "iterative method" begin
+        run_jump_tests(true, oa_solver, conic_solver)
+    end
+    @testset "one tree method" begin
+        run_jump_tests(false, oa_solver, conic_solver)
+    end
     return
 end
 
