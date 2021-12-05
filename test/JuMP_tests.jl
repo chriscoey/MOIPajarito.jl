@@ -98,15 +98,15 @@ function _soc2(opt)
     @test isapprox(JuMP.value(z), 2, atol = TOL)
 
     # TODO see https://github.com/jump-dev/MathOptInterface.jl/issues/1698
-    # JuMP.unset_integer(x)
-    # JuMP.optimize!(m)
-    # @test JuMP.termination_status(m) == MOI.OPTIMAL
-    # @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
-    # opt_obj = -2 * sqrt(5)
-    # @test isapprox(JuMP.objective_value(m), opt_obj, atol = TOL)
-    # @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
-    # @test isapprox(abs2(JuMP.value(x)) + abs2(JuMP.value(y)), 4, atol = TOL)
-    # @test isapprox(JuMP.value(z), 2, atol = TOL)
+    JuMP.unset_integer(x)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    opt_obj = -2 * sqrt(5)
+    @test isapprox(JuMP.objective_value(m), opt_obj, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
+    @test isapprox(abs2(JuMP.value(x)) + abs2(JuMP.value(y)), 4, atol = TOL)
+    @test isapprox(JuMP.value(z), 2, atol = TOL)
 
     return
 end
