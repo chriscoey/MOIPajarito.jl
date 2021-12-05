@@ -47,7 +47,9 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     obj_bound::Float64
     num_cuts::Int
     num_iters::Int
-    num_callbacks::Int
+    num_lazy_callbacks::Int
+    num_heuristic_callbacks::Int
+    new_incumbent::Bool
     solve_time::Float64
 
     function Optimizer(
@@ -89,7 +91,9 @@ function _empty_optimize(opt::Optimizer)
     opt.obj_bound = NaN
     opt.num_cuts = 0
     opt.num_iters = 0
-    opt.num_callbacks = 0
+    opt.num_lazy_callbacks = 0
+    opt.num_heuristic_callbacks = 0
+    opt.new_incumbent = false
     opt.solve_time = NaN
     if !isnothing(opt.oa_opt)
         MOI.empty!(opt.oa_opt)
@@ -139,6 +143,8 @@ end
 
 # one iteration of the iterative method
 function iterative_method(opt::Optimizer)
+    time_left = opt.time_limit - time() + opt.solve_time
+    JuMP.set_time_limit_sec(opt.oa_model, time_left)
     JuMP.optimize!(opt.oa_model)
 
     oa_status = JuMP.termination_status(opt.oa_model)
@@ -208,34 +214,49 @@ end
 
 # OA solver driven method using callbacks
 function oa_solver_driven_method(opt::Optimizer)
-    function lazy_callback(cb)
-        opt.num_callbacks += 1
-        cb_status = callback_node_status(cb, opt.oa_opt)
+    function lazy_cb(cb)
+        opt.num_lazy_callbacks += 1
+        cb_status = JuMP.callback_node_status(cb, opt.oa_model)
         if cb_status != MOI.CALLBACK_NODE_STATUS_INTEGER
             # only solve subproblem at an integer solution
             return
         end
 
-        subp_ok = !solve_subproblem(opt, cb)
-        if subp_ok
-            cuts_finish = add_subp_sep_cuts(opt)
-            # TODO do something with cuts_finish?
-        end
+        # TODO check if integer solution is repeated and cache the cuts
+        # (including those not added the first time because not violated)
+        solve_subproblem(opt, cb)
+        add_subp_sep_cuts(opt, cb)
+        # TODO if no sep cuts are added, could take the solution as a new incumbent if best
+        return
     end
-    MOI.set(opt.oa_opt, MOI.LazyConstraintCallback(), lazy_callback)
+    MOI.set(opt.oa_model, MOI.LazyConstraintCallback(), lazy_cb)
+
+    function heuristic_cb(cb)
+        opt.num_heuristic_callbacks += 1
+        if !opt.new_incumbent
+            return
+        end
+        cb_status =
+            MOI.submit(opt.oa_model, MOI.HeuristicSolution(cb), opt.oa_vars, opt.incumbent)
+        println("heuristic cb status was: ", cb_status)
+        # TODO do what with cb_status
+        opt.new_incumbent = false
+        return
+    end
+    MOI.set(opt.oa_model, MOI.HeuristicCallback(), heuristic_cb)
 
     if opt.verbose
         println("starting OA solver driven method")
     end
+    time_left = opt.time_limit - time() + opt.solve_time
+    JuMP.set_time_limit_sec(opt.oa_model, time_left)
     JuMP.optimize!(opt.oa_model)
     oa_status = JuMP.termination_status(opt.oa_model)
 
-    # TODO this should come from incumbent updated during lazy callbacks
+    # TODO handle statuses properly
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
-        opt.obj_value = JuMP.objective_value(opt.oa_model) + opt.obj_offset
         opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
-        opt.incumbent = JuMP.value.(opt.oa_vars)
     else
         opt.status = oa_status
     end
@@ -319,6 +340,8 @@ function solve_subproblem(opt::Optimizer, cb = nothing)
             sol = JuMP.value.(opt.subp_vars)
             copyto!(opt.incumbent, sol)
             opt.obj_value = obj_val
+            # println("new incumbent")
+            opt.new_incumbent = true
         end
         return false
     elseif subp_status == MOI.INFEASIBLE
@@ -353,11 +376,17 @@ function _finish(opt::Optimizer)
 
     oa_status = MOI.get(opt.oa_opt, MOI.TerminationStatus())
     if opt.verbose && oa_status != MOI.OPTIMIZE_NOT_CALLED
-        println("OA solver finished with status $oa_status, after $(opt.num_cuts) cuts")
+        println(
+            "OA solver finished with status $oa_status, after $(opt.solve_time) " *
+            "seconds and $(opt.num_cuts) cuts",
+        )
         if opt.use_iterative_method
             println("iterative method used $(opt.num_iters) iterations\n")
         else
-            println("OA solver driven method used $(opt.num_callbacks) callbacks\n")
+            println(
+                "OA solver driven method used $(opt.num_lazy_callbacks) lazy " *
+                "callbacks and $(opt.num_heuristic_callbacks) heuristic callbacks\n",
+            )
         end
     end
 
@@ -455,20 +484,20 @@ function _setup_models(opt::Optimizer)
 end
 
 function add_subp_sep_cuts(opt::Optimizer, cb = nothing)
-    subp_cuts_added = add_subp_cuts(opt)
+    subp_cuts_added = add_subp_cuts(opt, cb)
     if !subp_cuts_added
         if opt.verbose
             println("subproblem cuts could not be added")
         end
 
         # try separation cuts
-        cuts_added = add_sep_cuts(opt)
+        cuts_added = add_sep_cuts(opt, cb)
         if !cuts_added
             if opt.verbose
-                println("separation cuts could not be added; terminating")
+                println("separation cuts could not be added")
             end
             # TODO check if almost optimal
-            opt.status = MOI.OTHER_ERROR
+            # opt.status = MOI.OTHER_ERROR
             return true
         end
     end

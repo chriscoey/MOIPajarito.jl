@@ -25,6 +25,8 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
     MOI.set(model, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("conic_solver"), conic_solver)
+    MOI.set(model, MOI.RawOptimizerAttribute("time_limit"), 5)
+    MOI.set(model, MOI.RawOptimizerAttribute("iteration_limit"), 100)
 
     MOI.Test.runtests(
         model,
@@ -40,9 +42,7 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
                 MOI.SolverVersion,
             ],
         ),
-        include = String[
-        # "test_conic",
-        ],
+        # include = String[],
         exclude = String[
             # TODO(odow): unexpected failure, probably in the bridge layer
             "test_model_UpperBoundAlreadySet",

@@ -6,7 +6,7 @@ function add_init_cuts(opt::Optimizer)
     for (ci, s_vars, cone) in opt.oa_cones
         cuts = Cuts.get_init_cuts(cone)
         for cut in cuts
-            _add_constraint(cut, s_vars, opt.oa_model, nothing)
+            JuMP.@constraint(opt.oa_model, JuMP.dot(cut, s_vars) >= 0)
         end
         opt.num_cuts += length(cuts)
     end
@@ -32,9 +32,8 @@ function add_subp_cuts(opt::Optimizer, cb = nothing)
 
         cuts = Cuts.get_subp_cuts(dual, cone, opt.tol_feas)
         for cut in cuts
-            _add_constraint(cut, s_vars, opt.oa_model, cb)
+            opt.num_cuts += _add_constraint(cut, s_vars, opt, cb)
         end
-        opt.num_cuts += length(cuts)
     end
     return (opt.num_cuts > num_cuts_before)
 end
@@ -48,9 +47,8 @@ function add_sep_cuts(opt::Optimizer, cb = nothing)
 
         cuts = Cuts.get_sep_cuts(prim, cone, opt.tol_feas)
         for cut in cuts
-            _add_constraint(cut, s_vars, opt.oa_model, cb)
+            opt.num_cuts += _add_constraint(cut, s_vars, opt, cb)
         end
-        opt.num_cuts += length(cuts)
     end
     return (opt.num_cuts > num_cuts_before)
 end
@@ -60,18 +58,25 @@ end
 function _add_constraint(
     cut::Vector{Float64},
     s_vars::Vector{JuMP.VariableRef},
-    oa_model::JuMP.Model,
+    opt::Optimizer,
     ::Nothing,
 )
-    return JuMP.@constraint(oa_model, JuMP.dot(cut, s_vars) >= 0)
+    JuMP.@constraint(opt.oa_model, JuMP.dot(cut, s_vars) >= 0)
+    return 1
 end
 
 function _add_constraint(
     cut::Vector{Float64},
     s_vars::Vector{JuMP.VariableRef},
-    oa_model::JuMP.Model,
+    opt::Optimizer,
     cb,
 )
-    con = JuMP.@build_constraint(JuMP.dot(cut, s_vars) >= 0)
-    return MOI.submit(oa_model, MOI.LazyConstraint(cb), con)
+    # only add cut if violated (per JuMP documentation)
+    expr = JuMP.dot(cut, s_vars)
+    if JuMP.callback_value(cb, expr) < opt.tol_feas
+        con = JuMP.@build_constraint(expr >= 0)
+        MOI.submit(opt.oa_model, MOI.LazyConstraint(cb), con)
+        return 1
+    end
+    return 0
 end

@@ -11,19 +11,19 @@ import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
     @testset "iterative method" run_jump_tests(true, oa_solver, conic_solver)
-    # @testset "OA solver driven method" run_jump_tests(false, oa_solver, conic_solver)
+    @testset "OA solver driven method" run_jump_tests(false, oa_solver, conic_solver)
     return
 end
 
 function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
     opt = JuMP.optimizer_with_attributes(
         MOIPajarito.Optimizer,
-        # "verbose" => false,
+        "verbose" => false,
         "use_iterative_method" => use_iter,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
-        "iteration_limit" => 3,
-        "time_limit" => 20,
+        "iteration_limit" => 100,
+        "time_limit" => 5,
     )
     test_insts = filter(x -> startswith(string(x), "_"), names(@__MODULE__; all = true))
     @testset "$inst" for inst in test_insts
@@ -97,6 +97,7 @@ function _soc2(opt)
     @test isapprox(JuMP.value(y), -sqrt(3), atol = TOL)
     @test isapprox(JuMP.value(z), 2, atol = TOL)
 
+    # TODO see https://github.com/jump-dev/MathOptInterface.jl/issues/1698
     # JuMP.unset_integer(x)
     # JuMP.optimize!(m)
     # @test JuMP.termination_status(m) == MOI.OPTIMAL
@@ -114,13 +115,11 @@ function _soc3(opt)
     TOL = 1e-4
     d = 3
     m = JuMP.Model(opt)
-
     JuMP.@variable(m, x[1:d], Bin)
-    JuMP.@constraint(m, vcat(sqrt(d - 1) / 2, x) in JuMP.SecondOrderCone())
+    JuMP.@constraint(m, vcat(sqrt(d - 1) / 2, x .- 0.5) in JuMP.SecondOrderCone())
     JuMP.optimize!(m)
-    @test JuMP.termination_status(m) == MOI.OPTIMAL
-    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
-
+    @test JuMP.termination_status(m) == MOI.INFEASIBLE
+    @test JuMP.primal_status(m) == MOI.NO_SOLUTION
     return
 end
 
