@@ -97,7 +97,9 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     # integer variables
     cis = MOI.get(src, MOI.ListOfConstraintIndices{VI, MOI.Integer}())
     opt.integer_vars = [idx_map[VI(ci.value)].value for ci in cis]
-
+    for ci in cis
+        idx_map[ci] = ci
+    end
     # objective
     opt.obj_sense = MOI.MIN_SENSE
     model_c = zeros(n)
