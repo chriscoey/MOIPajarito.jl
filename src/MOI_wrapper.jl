@@ -72,7 +72,7 @@ end
 
 MOI.supports(::Optimizer, ::MOI.VariablePrimalStart, ::Type{VI}) = true
 
-function MOI.set(opt::Optimizer, attr::MOI.VariablePrimalStart, vi::VI, value)
+function MOI.set(opt::Optimizer, ::MOI.VariablePrimalStart, vi::VI, value)
     opt.incumbent[vi.value] = something(value, NaN)
     error("VariablePrimalStart not implemented")
     return
@@ -228,7 +228,7 @@ function MOI.get(opt::Optimizer, attr::MOI.ObjectiveValue)
     return _sense_val(opt.obj_sense) * opt.obj_value
 end
 
-function MOI.get(opt::Optimizer, attr::MOI.ObjectiveBound)
+function MOI.get(opt::Optimizer, ::MOI.ObjectiveBound)
     return _sense_val(opt.obj_sense) * opt.obj_bound
 end
 
