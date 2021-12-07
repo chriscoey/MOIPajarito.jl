@@ -13,8 +13,6 @@ can impact these caches then. because not convenient to have to pass
 options directly to caches. need to keep Pajarito simple with minimal
 options and minimal interfaces! want to be able to test turning on/off EFs
 
-
-
 =#
 
 function add_init_cuts(opt::Optimizer, s_vars::Vector{VR}, ::MOI.SecondOrderCone)

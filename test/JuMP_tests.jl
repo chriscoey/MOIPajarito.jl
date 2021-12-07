@@ -133,7 +133,7 @@ function _exp1(opt)
     JuMP.set_binary(v)
     JuMP.@objective(m, Max, u)
     JuMP.@constraint(m, s in MOI.ExponentialCone())
-    JuMP.@constraint(m, 1/2 - u - v >= 0)
+    JuMP.@constraint(m, 1 / 2 - u - v >= 0)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL
     @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
