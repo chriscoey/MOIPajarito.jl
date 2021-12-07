@@ -9,6 +9,7 @@ const MOIU = MOI.Utilities
 import JuMP
 import MOIPajarito
 
+# TODO test initial cuts, separation cuts, subproblem cuts
 function runtests(oa_solver, conic_solver)
     @testset "iterative method" begin
         run_jump_tests(true, oa_solver, conic_solver)

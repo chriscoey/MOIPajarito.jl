@@ -314,6 +314,7 @@ function solve_relaxation(opt::Optimizer)
         opt.status = MOI.OTHER_ERROR
         return true
     end
+    @assert JuMP.has_duals(opt.relax_model)
 
     if isempty(opt.integer_vars)
         # problem is continuous
@@ -361,8 +362,11 @@ function solve_subproblem(opt::Optimizer)
             # println("new incumbent")
             opt.new_incumbent = true
         end
+        @assert JuMP.has_duals(opt.subp_model)
         return false
     elseif subp_status == MOI.INFEASIBLE
+        # NOTE: duals are rescaled before adding subproblem cuts
+        @assert JuMP.has_duals(opt.subp_model)
         return false
     end
 
@@ -556,10 +560,16 @@ function add_subp_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
     for (ci, s_vars, cone) in opt.oa_cones
         z = JuMP.dual(ci)
-        # z_norm = LinearAlgebra.norm(z, Inf)
-        # if isnan(z_norm) || z_norm < opt.tol_feas # TODO tune
-        #     continue # discard duals with small norm
-        # end
+        z_norm = LinearAlgebra.norm(z, Inf)
+        if z_norm < 1e-10 # TODO tune
+            continue # discard duals with small norm
+        elseif z_norm > 1e12
+            @warn("norm of dual is too large ($z_norm)")
+        end
+        if JuMP.termination_status(opt.subp_model) == MOI.INFEASIBLE
+            # rescale dual rays
+            z .*= inv(z_norm)
+        end
         opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
     end
     return (opt.num_cuts > num_cuts_before)

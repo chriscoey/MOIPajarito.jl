@@ -34,7 +34,7 @@ function add_subp_cuts(
     s_vars::Vector{VR},
     ::MOI.SecondOrderCone,
 )
-    # extreme cut is (‖r‖, r)
+    # strengthened cut is (‖r‖, r)
     @views r = z[2:end]
     u = s_vars[1]
     @views w = s_vars[2:end]
@@ -48,18 +48,18 @@ function add_sep_cuts(
     s_vars::Vector{VR},
     ::MOI.SecondOrderCone,
 )
-    # check (p, r) ∉ K
-    p = s[1]
-    @views r = s[2:end]
-    r_norm = LinearAlgebra.norm(r)
-    if p - r_norm > -opt.tol_feas
+    us = s[1]
+    @views ws = s[2:end]
+    ws_norm = LinearAlgebra.norm(ws)
+    # check s ∉ K
+    if us - ws_norm > -opt.tol_feas
         return 0
     end
 
-    # scaled extreme cut is (1, -r / ‖r‖)
+    # cut is (1, -ws / ‖ws‖)
     u = s_vars[1]
     @views w = s_vars[2:end]
     d = length(w)
-    expr = JuMP.@expression(opt.oa_model, u - sum(r[i] / r_norm * w[i] for i in 1:d))
+    expr = JuMP.@expression(opt.oa_model, u - sum(ws[i] / ws_norm * w[i] for i in 1:d))
     return add_cut(expr, opt)
 end
