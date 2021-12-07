@@ -18,7 +18,7 @@ jobs:
         shell: julia --color=yes {0}
         run: |
           using Pkg
-          Pkg.add(PackageSpec(name="JuliaFormatter", version="0.15.11"))
+          Pkg.add(PackageSpec(name="JuliaFormatter"))
           using JuliaFormatter
           format("src", verbose=true)
           format("test", verbose=true)
@@ -26,6 +26,6 @@ jobs:
           if isempty(out)
               exit(0)
           end
-          @error "Some files have not been formatted !!!"
+          @error "Some files have not been formatted; use JuliaFormatter"
           write(stdout, out)
           exit(1)

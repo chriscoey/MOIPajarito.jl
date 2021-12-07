@@ -26,6 +26,7 @@ conic_solver = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 # import Hypatia
 # conic_solver = MOI.OptimizerWithAttributes(Hypatia.Optimizer, MOI.Silent() => true)
 
+println("starting Pajarito tests")
 Test.@testset "Pajarito tests" begin
     println("starting MOI tests")
     include("MOI_tests.jl")

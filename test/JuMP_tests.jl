@@ -75,7 +75,6 @@ function _soc1(opt)
     @test isapprox(JuMP.objective_value(m), -3, atol = TOL)
     @test isapprox(JuMP.objective_bound(m), -3, atol = TOL)
     @test isapprox(JuMP.value(x), 1, atol = TOL)
-
     return
 end
 
@@ -111,7 +110,6 @@ function _soc2(opt)
     @test isapprox(JuMP.objective_bound(m), opt_obj, atol = TOL)
     @test isapprox(abs2(JuMP.value(x)) + abs2(JuMP.value(y)), 4, atol = TOL)
     @test isapprox(JuMP.value(z), 2, atol = TOL)
-
     return
 end
 
@@ -121,6 +119,57 @@ function _soc3(opt)
     m = JuMP.Model(opt)
     JuMP.@variable(m, x[1:d], Bin)
     JuMP.@constraint(m, vcat(sqrt(d - 1) / 2, x .- 0.5) in JuMP.SecondOrderCone())
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.INFEASIBLE
+    @test JuMP.primal_status(m) == MOI.NO_SOLUTION
+    return
+end
+
+function _exp1(opt)
+    TOL = 1e-4
+    m = JuMP.Model(opt)
+
+    (u, v, w) = s = JuMP.@variable(m, [1:3])
+    JuMP.set_binary(v)
+    JuMP.@objective(m, Max, u)
+    JuMP.@constraint(m, s in MOI.ExponentialCone())
+    JuMP.@constraint(m, 1/2 - u - v >= 0)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 0, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 0, atol = TOL)
+    @test isapprox(JuMP.value(v), 0, atol = TOL)
+
+    JuMP.@objective(m, Max, u - w)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 0, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 0, atol = TOL)
+    @test isapprox(JuMP.value(w), 0, atol = TOL)
+    return
+end
+
+function _exp2(opt)
+    TOL = 1e-4
+    m = JuMP.Model(opt)
+
+    JuMP.@variable(m, x >= 0, Int)
+    JuMP.@variable(m, y >= 0)
+    JuMP.@objective(m, Min, -3x - y)
+    JuMP.@constraint(m, 3x + 2y <= 10)
+    c1 = JuMP.@constraint(m, [x, 1, 10] in MOI.ExponentialCone())
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), -8, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), -8, atol = TOL)
+    @test isapprox(JuMP.value(x), 2, atol = TOL)
+    @test isapprox(JuMP.value(y), 2, atol = TOL)
+
+    JuMP.delete(m, c1)
+    JuMP.@constraint(m, [x, -1, 10] in MOI.ExponentialCone())
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.INFEASIBLE
     @test JuMP.primal_status(m) == MOI.NO_SOLUTION

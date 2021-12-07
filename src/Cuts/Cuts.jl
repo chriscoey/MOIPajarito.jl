@@ -11,6 +11,12 @@ const CR = JuMP.ConstraintRef
 
 import MOIPajarito: Optimizer
 
+# include("arrayutilities.jl")
+include("secondordercone.jl")
+include("exponentialcone.jl")
+# include("powercone.jl")
+# include("positivesemidefiniteconetriangle.jl")
+
 # initial fixed cuts (default to none)
 add_init_cuts(::Optimizer, ::Vector{VR}, ::AVS) = 0
 
@@ -21,13 +27,7 @@ function add_subp_cuts(opt::Optimizer, z::Vector{Float64}, s_vars::Vector{VR}, :
 end
 
 # separation cuts (default to none)
-function add_sep_cuts(::Optimizer, ::Vector{Float64}, ::Vector{VR}, ::AVS)
-    return 0
-end
-
-# include("arrayutilities.jl")
-include("secondordercone.jl")
-# include("positivesemidefiniteconetriangle.jl")
+add_sep_cuts(::Optimizer, ::Vector{Float64}, ::Vector{VR}, ::AVS) = 0
 
 function add_cut(expr::JuMP.AffExpr, opt::Optimizer)
     return _add_cut(expr, opt.oa_model, opt.tol_feas, opt.lazy_cb)

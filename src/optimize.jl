@@ -5,6 +5,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     verbose::Bool
     tol_feas::Float64
     tol_rel_gap::Float64
+    tol_abs_gap::Float64
     time_limit::Float64
     iteration_limit::Int
     use_iterative_method::Union{Nothing, Bool}
@@ -55,6 +56,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         verbose::Bool = true,
         tol_feas::Float64 = 1e-7,
         tol_rel_gap::Float64 = 1e-5,
+        tol_abs_gap::Float64 = 1e-7,
         time_limit::Float64 = Inf,
         iteration_limit::Int = 1000,
         use_iterative_method::Union{Nothing, Bool} = nothing,
@@ -65,6 +67,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.verbose = verbose
         opt.tol_feas = tol_feas
         opt.tol_rel_gap = tol_rel_gap
+        opt.tol_abs_gap = tol_abs_gap
         opt.time_limit = time_limit
         opt.iteration_limit = iteration_limit
         opt.use_iterative_method = use_iterative_method
@@ -144,6 +147,13 @@ end
 # one iteration of the iterative method
 function run_iterative_method(opt::Optimizer)
     time_left = opt.time_limit - time() + opt.solve_time
+    if time_left < 0.001
+        if opt.verbose
+            println("time limit ($(opt.time_limit)) reached; terminating")
+        end
+        opt.status = MOI.TIME_LIMIT
+        return true
+    end
     JuMP.set_time_limit_sec(opt.oa_model, time_left)
     JuMP.optimize!(opt.oa_model)
 
@@ -176,12 +186,20 @@ function run_iterative_method(opt::Optimizer)
             opt.num_cuts,
             opt.obj_value,
             opt.obj_bound,
-            obj_rel_gap
+            obj_rel_gap,
         )
     end
     if !isnan(obj_rel_gap) && obj_rel_gap < opt.tol_rel_gap
         if opt.verbose
             println("objective relative gap $obj_rel_gap reached; terminating")
+        end
+        opt.status = MOI.OPTIMAL
+        return true
+    end
+    obj_abs_gap = get_obj_abs_gap(opt)
+    if !isnan(obj_abs_gap) && obj_abs_gap < opt.tol_abs_gap
+        if opt.verbose
+            println("objective absolute gap $obj_abs_gap reached; terminating")
         end
         opt.status = MOI.OPTIMAL
         return true
@@ -281,11 +299,10 @@ function solve_relaxation(opt::Optimizer)
                 "with dual objective value $(opt.obj_bound)",
             )
         end
-    elseif relax_status == MOI.DUAL_INFEASIBLE
+    elseif relax_status == MOI.DUAL_INFEASIBLE || relax_status == MOI.ALMOST_OPTIMAL
         if opt.verbose
             println("continuous relaxation status is $relax_status")
         end
-        opt.status = relax_status
     elseif relax_status == MOI.INFEASIBLE
         if opt.verbose
             println("infeasibility detected from continuous relaxation; terminating")
@@ -293,7 +310,7 @@ function solve_relaxation(opt::Optimizer)
         opt.status = relax_status
         return true
     else
-        @warn("OA solver status $relax_status is not handled")
+        @warn("continuous relaxation status $relax_status is not handled")
         opt.status = MOI.OTHER_ERROR
         return true
     end
@@ -394,18 +411,22 @@ function finish_optimize(opt::Optimizer)
     return nothing
 end
 
-# compute objective relative gap
-# TODO decide whether to use 1e-5 constant
-function get_obj_rel_gap(opt::Optimizer)
+# compute objective absolute gap
+function get_obj_abs_gap(opt::Optimizer)
     if opt.obj_sense == MOI.FEASIBILITY_SENSE
         return NaN
     end
-    rel_gap = (opt.obj_value - opt.obj_bound) / (1e-5 + abs(opt.obj_value))
     if opt.obj_sense == MOI.MIN_SENSE
-        return rel_gap
+        return opt.obj_value - opt.obj_bound
     else
-        return -rel_gap
+        return opt.obj_bound - opt.obj_value
     end
+end
+
+# compute objective relative gap
+# TODO decide whether to use 1e-5 constant
+function get_obj_rel_gap(opt::Optimizer)
+    return get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
 end
 
 # return true if objective value and bound are incompatible, else false
