@@ -29,7 +29,7 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,
-        "time_limit" => 10.0,
+        "time_limit" => 30.0,
     )
     insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _psd1, _psd2, _expdesign]
     @testset "$inst" for inst in insts
@@ -248,7 +248,7 @@ function _expdesign(opt)
         JuMP.@variable(m, x[1:5], Int)
         JuMP.@constraint(m, x .>= 0)
         JuMP.@constraint(m, sum(x) <= 8)
-        Q = V * LinearAlgebra.Diagonal(x) * V'
+        Q = V * LinearAlgebra.diagm(x) * V'
         return (m, x, Q)
     end
 
