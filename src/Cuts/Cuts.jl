@@ -15,19 +15,19 @@ import MOIPajarito: Optimizer
 include("secondordercone.jl")
 include("exponentialcone.jl")
 # include("powercone.jl")
-# include("positivesemidefiniteconetriangle.jl")
+include("positivesemidefiniteconetriangle.jl")
 
 # initial fixed cuts (default to none)
-add_init_cuts(::Optimizer, ::Vector{VR}, ::AVS) = 0
+# add_init_cuts(::Optimizer, ::Vector{VR}, ::AVS) = 0
 
 # strengthened subproblem dual cuts (default to no strengthening)
-function add_subp_cuts(opt::Optimizer, z::Vector{Float64}, s_vars::Vector{VR}, ::AVS)
-    expr = JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
-    return add_cut(expr, opt)
-end
+# function add_subp_cuts(opt::Optimizer, z::Vector{Float64}, s_vars::Vector{VR}, ::AVS)
+#     expr = JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
+#     return add_cut(expr, opt)
+# end
 
 # separation cuts (default to none)
-add_sep_cuts(::Optimizer, ::Vector{Float64}, ::Vector{VR}, ::AVS) = 0
+# add_sep_cuts(::Optimizer, ::Vector{Float64}, ::Vector{VR}, ::AVS) = 0
 
 function add_cut(expr::JuMP.AffExpr, opt::Optimizer)
     return _add_cut(expr, opt.oa_model, opt.tol_feas, opt.lazy_cb)

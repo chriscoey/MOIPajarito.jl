@@ -60,10 +60,11 @@ function MOI.supports_constraint(opt::Optimizer, F::Type{VI}, S::Type{MOI.Intege
     return MOI.supports_constraint(get_oa_opt(opt), F, S)
 end
 
+# cone must be supported by both Pajarito and the conic solver
 function MOI.supports_constraint(
     opt::Optimizer,
     F::Type{<:Union{VV, VAF}},
-    S::Type{<:Union{MOI.Zeros, AVS}},
+    S::Type{<:Union{MOI.Zeros, MOI.Nonnegatives, OACone}},
 )
     return MOI.supports_constraint(get_conic_opt(opt), F, S)
 end
@@ -223,16 +224,17 @@ end
 
 MOI.get(::Optimizer, ::MOI.DualStatus) = MOI.NO_SOLUTION
 
-_sense_val(sense::MOI.OptimizationSense) = (sense == MOI.MAX_SENSE ? -1 : 1)
+function _adjust_obj(opt::Optimizer, value::Float64)
+    sense_mul = (opt.obj_sense == MOI.MAX_SENSE ? -1 : 1)
+    return sense_mul * (opt.obj_offset + value)
+end
 
 function MOI.get(opt::Optimizer, attr::MOI.ObjectiveValue)
     MOI.check_result_index_bounds(opt, attr)
-    return _sense_val(opt.obj_sense) * opt.obj_value
+    return _adjust_obj(opt, opt.obj_value)
 end
 
-function MOI.get(opt::Optimizer, ::MOI.ObjectiveBound)
-    return _sense_val(opt.obj_sense) * opt.obj_bound
-end
+MOI.get(opt::Optimizer, ::MOI.ObjectiveBound) = _adjust_obj(opt, opt.obj_bound)
 
 MOI.get(opt::Optimizer, ::MOI.ResultCount) = 1
 

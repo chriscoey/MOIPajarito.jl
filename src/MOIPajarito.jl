@@ -17,6 +17,12 @@ const AVS = MOI.AbstractVectorSet
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 
+const OACone = Union{
+    MOI.SecondOrderCone,
+    MOI.ExponentialCone,
+    MOI.PowerCone{Float64},
+    MOI.PositiveSemidefiniteConeTriangle,
+}
 include("optimize.jl")
 include("MOI_wrapper.jl")
 include("Cuts/Cuts.jl")

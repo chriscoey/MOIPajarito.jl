@@ -3,6 +3,7 @@
 module TestJuMP
 
 using Test
+import LinearAlgebra
 import MathOptInterface
 const MOI = MathOptInterface
 const MOIU = MOI.Utilities
@@ -27,12 +28,12 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "use_iterative_method" => use_iter,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
-        "iteration_limit" => 100,
-        "time_limit" => 5,
+        "iteration_limit" => 30,
+        "time_limit" => 10.0,
     )
-    test_insts = filter(x -> startswith(string(x), "_"), names(@__MODULE__; all = true))
-    @testset "$inst" for inst in test_insts
-        getfield(@__MODULE__, inst)(opt)
+    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _psd1, _psd2, _expdesign]
+    @testset "$inst" for inst in insts
+        inst(opt)
     end
     return
 end
@@ -174,6 +175,133 @@ function _exp2(opt)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.INFEASIBLE
     @test JuMP.primal_status(m) == MOI.NO_SOLUTION
+    return
+end
+
+function _psd1(opt)
+    TOL = 1e-4
+    m = JuMP.Model(opt)
+
+    JuMP.@variable(m, x, Int)
+    JuMP.@constraint(m, x >= 0)
+    JuMP.@variable(m, y >= 0)
+    JuMP.@variable(m, Z[1:2, 1:2], PSD)
+    JuMP.@objective(m, Max, 3x + y - Z[1, 1])
+    JuMP.@constraint(m, 3x + 2y <= 10)
+    JuMP.@constraint(m, [2 x; x 2] in JuMP.PSDCone())
+    c1 = JuMP.@constraint(m, Z[1, 2] >= 1)
+    c2 = JuMP.@constraint(m, y >= Z[2, 2])
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 7.5, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 7.5, atol = TOL)
+    @test isapprox(JuMP.value(x), 2, atol = TOL)
+    @test isapprox(JuMP.value(y), 2, atol = TOL)
+    @test isapprox(JuMP.value.(vec(Z)), [0.5, 1, 1, 2], atol = TOL)
+
+    JuMP.delete(m, c1)
+    JuMP.delete(m, c2)
+    JuMP.@constraint(m, x >= 2)
+    JuMP.set_lower_bound(Z[1, 2], 2)
+    c2 = JuMP.@constraint(m, y >= Z[2, 2] + Z[1, 1])
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.INFEASIBLE
+    @test JuMP.primal_status(m) == MOI.NO_SOLUTION
+    return
+end
+
+function _psd2(opt)
+    TOL = 1e-4
+    d = 3
+    mat = LinearAlgebra.Symmetric(Matrix{Float64}(reshape(1:(d^2), d, d)), :U)
+    λ₁ = LinearAlgebra.eigmax(mat)
+    m = JuMP.Model(opt)
+
+    X = JuMP.@variable(m, [1:d, 1:d], PSD)
+    JuMP.@objective(m, Max, JuMP.dot(mat, X))
+    JuMP.@constraint(m, JuMP.tr(X) == 1)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), λ₁, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), λ₁, atol = TOL)
+    X_val = JuMP.value.(X)
+    @test isapprox(LinearAlgebra.tr(X_val), 1, atol = TOL)
+
+    JuMP.set_binary.(X)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    X_val = JuMP.value.(X)
+    @test isapprox(sum(X_val), 1, atol = TOL)
+    @test isapprox(X_val[d, d], 1, atol = TOL)
+    return
+end
+
+function _expdesign(opt)
+    TOL = 1e-4
+    # experiment design
+    V = [1 1 -0.5 -1 0; 1 -1 1 -0.5 0]
+    function setup_exp_design()
+        m = JuMP.Model(opt)
+        JuMP.@variable(m, x[1:5], Int)
+        JuMP.@constraint(m, x .>= 0)
+        JuMP.@constraint(m, sum(x) <= 8)
+        Q = V * LinearAlgebra.Diagonal(x) * V'
+        return (m, x, Q)
+    end
+
+    # A-optimal
+    (m, x, Q) = setup_exp_design()
+    JuMP.@variable(m, y[1:2] >= 0)
+    JuMP.@objective(m, Min, sum(y))
+    for i in 1:2
+        ei = zeros(2)
+        ei[i] = 1
+        Qyi = [Q ei; ei' y[i]]
+        JuMP.@constraint(m, LinearAlgebra.Symmetric(Qyi) in JuMP.PSDCone())
+    end
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 1 / 4, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 1 / 4, atol = TOL)
+    x_val = JuMP.value.(x)
+    @test isapprox(x_val, [4, 4, 0, 0, 0], atol = TOL)
+    @test isapprox(JuMP.value.(y[1]), JuMP.value.(y[2]), atol = TOL)
+
+    # E-optimal
+    (m, x, Q) = setup_exp_design()
+    JuMP.@variable(m, y)
+    JuMP.@objective(m, Max, y)
+    Qy = Q - y * Matrix(LinearAlgebra.I, 2, 2)
+    JuMP.@constraint(m, LinearAlgebra.Symmetric(Qy) in JuMP.PSDCone())
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 8, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 8, atol = TOL)
+    x_val = JuMP.value.(x)
+    @test isapprox(x_val, [4, 4, 0, 0, 0], atol = TOL)
+
+    # D-optimal
+    for use_logdet in (true, false)
+        (m, x, Q) = setup_exp_design()
+        JuMP.@variable(m, y)
+        JuMP.@objective(m, Max, y)
+        Qvec = [Q[1, 1], Q[2, 1], Q[2, 2]]
+        if use_logdet
+            JuMP.@constraint(m, vcat(y, 1.0, Qvec) in MOI.LogDetConeTriangle(2))
+        else
+            JuMP.@constraint(m, vcat(y, Qvec) in MOI.RootDetConeTriangle(2))
+        end
+        JuMP.optimize!(m)
+        @test JuMP.termination_status(m) == MOI.OPTIMAL
+        @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+        x_val = JuMP.value.(x)
+        @test isapprox(x_val, [4, 4, 0, 0, 0], atol = TOL)
+    end
     return
 end
 

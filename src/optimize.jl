@@ -21,12 +21,12 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     zeros_idxs::Vector{UnitRange{Int}} # TODO needed?
 
     # problem data
+    obj_offset::Float64
     c::Vector{Float64}
     A::SparseArrays.SparseMatrixCSC{Float64, Int}
     b::Vector{Float64}
     G::SparseArrays.SparseMatrixCSC{Float64, Int}
     h::Vector{Float64}
-    obj_offset::Float64
     cones::Vector{AVS}
     cone_idxs::Vector{UnitRange{Int}}
 
@@ -146,17 +146,13 @@ end
 
 # one iteration of the iterative method
 function run_iterative_method(opt::Optimizer)
-    time_left = opt.time_limit - time() + opt.solve_time
-    if time_left < 0.001
-        if opt.verbose
-            println("time limit ($(opt.time_limit)) reached; terminating")
-        end
-        opt.status = MOI.TIME_LIMIT
+    time_finish = check_time_limit(opt)
+    if time_finish
         return true
     end
-    JuMP.set_time_limit_sec(opt.oa_model, time_left)
-    JuMP.optimize!(opt.oa_model)
 
+    # solve OA model
+    JuMP.optimize!(opt.oa_model)
     oa_status = JuMP.termination_status(opt.oa_model)
     if oa_status == MOI.INFEASIBLE
         if opt.verbose
@@ -171,11 +167,24 @@ function run_iterative_method(opt::Optimizer)
     end
 
     # update objective bound
-    opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
+    opt.obj_bound = JuMP.objective_bound(opt.oa_model)
 
     # solve conic subproblem with fixed integer solution and update incumbent
-    subp_finish = solve_subproblem(opt)
-    subp_finish && return true
+    subp_failed = solve_subproblem(opt)
+    # subp_failed && return true
+
+    # add OA cuts and update incumbent from OA solution if no cuts are added
+    subp_cuts_added = false
+    if !subp_failed
+        subp_cuts_added = add_subp_cuts(opt)
+    end
+    if !subp_cuts_added
+        cuts_added = add_sep_cuts(opt)
+        if !cuts_added
+            # no separation cuts, so try updating incumbent from OA solver
+            update_incumbent_from_OA(opt)
+        end
+    end
 
     # print and check convergence
     obj_rel_gap = get_obj_rel_gap(opt)
@@ -213,25 +222,15 @@ function run_iterative_method(opt::Optimizer)
         opt.status = MOI.ITERATION_LIMIT
         return true
     end
-
-    # check time limit
-    if time() - opt.solve_time >= opt.time_limit
-        if opt.verbose
-            println("time limit ($(opt.time_limit)) reached; terminating")
-        end
-        opt.status = MOI.TIME_LIMIT
-        return true
-    end
-
-    # add OA cuts
-    cuts_finish = add_subp_sep_cuts(opt)
-    cuts_finish && return true
-
     return false
 end
 
 # one tree method using callbacks
 function run_one_tree_method(opt::Optimizer)
+    if opt.verbose
+        println("starting one tree method")
+    end
+
     function lazy_cb(cb)
         opt.num_lazy_cbs += 1
         cb_status = JuMP.callback_node_status(cb, opt.oa_model)
@@ -243,9 +242,20 @@ function run_one_tree_method(opt::Optimizer)
 
         # TODO check if integer solution is repeated and cache the cuts
         # (including those not added the first time because not violated)
-        solve_subproblem(opt)
-        add_subp_sep_cuts(opt)
-        # TODO if no sep cuts are added, could take the solution as a new incumbent if best
+        subp_failed = solve_subproblem(opt)
+
+        # add OA cuts and update incumbent from OA solution if no cuts are added
+        subp_cuts_added = false
+        if !subp_failed
+            subp_cuts_added = add_subp_cuts(opt)
+        end
+        if !subp_cuts_added
+            cuts_added = add_sep_cuts(opt)
+            if !cuts_added
+                # no separation cuts, so try updating incumbent from OA solver
+                update_incumbent_from_OA(opt)
+            end
+        end
         return
     end
     MOI.set(opt.oa_model, MOI.LazyConstraintCallback(), lazy_cb)
@@ -264,23 +274,32 @@ function run_one_tree_method(opt::Optimizer)
     end
     MOI.set(opt.oa_model, MOI.HeuristicCallback(), heuristic_cb)
 
-    if opt.verbose
-        println("starting one tree method")
-    end
-    time_left = opt.time_limit - time() + opt.solve_time
-    JuMP.set_time_limit_sec(opt.oa_model, time_left)
+    check_time_limit(opt)
     JuMP.optimize!(opt.oa_model)
     oa_status = JuMP.termination_status(opt.oa_model)
 
     # TODO handle statuses properly
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
-        opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
+        opt.obj_bound = JuMP.objective_bound(opt.oa_model)
     else
         opt.status = oa_status
     end
 
     return
+end
+
+function check_time_limit(opt::Optimizer)
+    time_left = opt.time_limit - time() + opt.solve_time
+    if time_left < 1e-3
+        if opt.verbose
+            println("time limit ($(opt.time_limit)) reached; terminating")
+        end
+        opt.status = MOI.TIME_LIMIT
+        return true
+    end
+    JuMP.set_time_limit_sec(opt.oa_model, time_left)
+    return false
 end
 
 function solve_relaxation(opt::Optimizer)
@@ -292,7 +311,7 @@ function solve_relaxation(opt::Optimizer)
     relax_status = JuMP.termination_status(opt.relax_model)
 
     if relax_status == MOI.OPTIMAL
-        opt.obj_bound = JuMP.dual_objective_value(opt.relax_model) + opt.obj_offset
+        opt.obj_bound = JuMP.dual_objective_value(opt.relax_model)
         if opt.verbose
             println(
                 "continuous relaxation status is $relax_status " *
@@ -311,10 +330,10 @@ function solve_relaxation(opt::Optimizer)
         return true
     else
         @warn("continuous relaxation status $relax_status is not handled")
-        opt.status = MOI.OTHER_ERROR
-        return true
+        # opt.status = MOI.OTHER_ERROR
+        return false
     end
-    @assert JuMP.has_duals(opt.relax_model)
+    # @assert JuMP.has_duals(opt.relax_model)
 
     if isempty(opt.integer_vars)
         # problem is continuous
@@ -323,7 +342,7 @@ function solve_relaxation(opt::Optimizer)
         end
         if relax_status == MOI.OPTIMAL
             opt.status = relax_status
-            opt.obj_value = JuMP.objective_value(opt.relax_model) + opt.obj_offset
+            opt.obj_value = JuMP.objective_value(opt.relax_model)
             opt.incumbent = JuMP.value.(opt.subp_vars)
         end
         return true
@@ -339,7 +358,7 @@ function solve_subproblem(opt::Optimizer)
     for i in opt.integer_vars
         x_i = opt.oa_vars[i]
         val = get_value(x_i, opt.lazy_cb)
-        @assert val ≈ round(val) # TODO
+        @assert isapprox(val, round(val), atol = 1e-10)
         # TODO map oa var to conic var
         JuMP.fix(opt.subp_vars[i], val; force = true)
     end
@@ -353,8 +372,8 @@ function solve_subproblem(opt::Optimizer)
     end
 
     if subp_status == MOI.OPTIMAL
-        obj_val = JuMP.objective_value(opt.subp_model) + opt.obj_offset
-        if compare_obj(obj_val, opt.obj_value, opt)
+        obj_val = JuMP.objective_value(opt.subp_model)
+        if obj_val < opt.obj_value
             # update incumbent and objective value
             sol = JuMP.value.(opt.subp_vars)
             copyto!(opt.incumbent, sol)
@@ -362,15 +381,13 @@ function solve_subproblem(opt::Optimizer)
             # println("new incumbent")
             opt.new_incumbent = true
         end
-        @assert JuMP.has_duals(opt.subp_model)
         return false
     elseif subp_status == MOI.INFEASIBLE
         # NOTE: duals are rescaled before adding subproblem cuts
-        @assert JuMP.has_duals(opt.subp_model)
         return false
     end
 
-    @warn("OA solver status $subp_status is not handled")
+    @warn("continuous subproblem status $subp_status is not handled")
     opt.status = MOI.OTHER_ERROR
     return true
 end
@@ -381,14 +398,8 @@ function start_optimize(opt::Optimizer)
     get_oa_opt(opt)
     empty_optimize(opt)
     opt.solve_time = time()
-
-    if opt.obj_sense == MOI.MIN_SENSE
-        opt.obj_value = Inf
-    elseif opt.obj_sense == MOI.MAX_SENSE
-        opt.obj_value = -Inf
-    end
-    opt.obj_bound = -opt.obj_value
-
+    opt.obj_value = Inf
+    opt.obj_bound = -Inf
     return nothing
 end
 
@@ -403,14 +414,15 @@ function finish_optimize(opt::Optimizer)
             "seconds and $(opt.num_cuts) cuts",
         )
         if opt.use_iterative_method
-            println("iterative method used $(opt.num_iters) iterations\n")
+            println("iterative method used $(opt.num_iters) iterations")
         else
             println(
                 "one tree method used $(opt.num_lazy_cbs) lazy " *
-                "callbacks and $(opt.num_heuristic_cbs) heuristic callbacks\n",
+                "callbacks and $(opt.num_heuristic_cbs) heuristic callbacks",
             )
         end
     end
+    opt.verbose && println()
 
     return nothing
 end
@@ -420,28 +432,13 @@ function get_obj_abs_gap(opt::Optimizer)
     if opt.obj_sense == MOI.FEASIBILITY_SENSE
         return NaN
     end
-    if opt.obj_sense == MOI.MIN_SENSE
-        return opt.obj_value - opt.obj_bound
-    else
-        return opt.obj_bound - opt.obj_value
-    end
+    return opt.obj_value - opt.obj_bound
 end
 
 # compute objective relative gap
 # TODO decide whether to use 1e-5 constant
 function get_obj_rel_gap(opt::Optimizer)
     return get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
-end
-
-# return true if objective value and bound are incompatible, else false
-function compare_obj(value::Float64, bound::Float64, opt::Optimizer)
-    if opt.obj_sense == MOI.FEASIBILITY_SENSE
-        return false
-    elseif opt.obj_sense == MOI.MIN_SENSE
-        return (value < bound)
-    else
-        return (value > bound)
-    end
 end
 
 # setup conic and OA models
@@ -487,7 +484,6 @@ function setup_models(opt::Optimizer)
             push!(opt.oa_cones, (K_relax_i, s_i, cone))
         end
     end
-
     if !isempty(opt.oa_cones)
         return false
     end
@@ -500,33 +496,12 @@ function setup_models(opt::Optimizer)
     JuMP.optimize!(opt.oa_model)
     opt.status = JuMP.termination_status(opt.oa_model)
     if opt.status == MOI.OPTIMAL
-        opt.obj_value = JuMP.objective_value(opt.oa_model) + opt.obj_offset
-        opt.obj_bound = JuMP.objective_bound(opt.oa_model) + opt.obj_offset
+        opt.obj_value = JuMP.objective_value(opt.oa_model)
+        opt.obj_bound = JuMP.objective_bound(opt.oa_model)
         opt.incumbent = JuMP.value.(opt.oa_vars)
     end
 
     return true
-end
-
-function add_subp_sep_cuts(opt::Optimizer)
-    subp_cuts_added = add_subp_cuts(opt)
-    if !subp_cuts_added
-        if opt.verbose
-            println("subproblem cuts could not be added")
-        end
-
-        # try separation cuts
-        cuts_added = add_sep_cuts(opt)
-        if !cuts_added
-            if opt.verbose
-                println("separation cuts could not be added")
-            end
-            # TODO check if almost optimal
-            # opt.status = MOI.OTHER_ERROR
-            return true
-        end
-    end
-    return false
 end
 
 function get_value(var::VR, ::Nothing)
@@ -557,6 +532,10 @@ end
 # TODO save the list of cut expressions (all, even if not added this round)
 # to add at repeated integral solutions.
 function add_subp_cuts(opt::Optimizer)
+    if !JuMP.has_duals(opt.subp_model)
+        return 0
+    end
+
     num_cuts_before = opt.num_cuts
     for (ci, s_vars, cone) in opt.oa_cones
         z = JuMP.dual(ci)
@@ -564,7 +543,7 @@ function add_subp_cuts(opt::Optimizer)
         if z_norm < 1e-10 # TODO tune
             continue # discard duals with small norm
         elseif z_norm > 1e12
-            @warn("norm of dual is too large ($z_norm)")
+            @warn("norm of dual is large ($z_norm)")
         end
         if JuMP.termination_status(opt.subp_model) == MOI.INFEASIBLE
             # rescale dual rays
@@ -572,15 +551,48 @@ function add_subp_cuts(opt::Optimizer)
         end
         opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
     end
-    return (opt.num_cuts > num_cuts_before)
+
+    if opt.num_cuts <= num_cuts_before
+        if opt.verbose
+            println("subproblem cuts could not be added")
+        end
+        return false
+    end
+    return true
 end
 
 # separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    for (ci, s_vars, cone) in opt.oa_cones
-        s = get_value(s_vars, opt.lazy_cb)
+    # TODO can't get the values after added a cut, due to "optimize not called"
+    ss = [get_value(s_vars, opt.lazy_cb) for (ci, s_vars, cone) in opt.oa_cones]
+    for (s, (ci, s_vars, cone)) in zip(ss, opt.oa_cones)
         opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
     end
-    return (opt.num_cuts > num_cuts_before)
+    # for (ci, s_vars, cone) in opt.oa_cones
+    #     s = get_value(s_vars, opt.lazy_cb)
+    #     opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
+    # end
+
+    if opt.num_cuts <= num_cuts_before
+        if opt.verbose
+            println("separation cuts could not be added")
+        end
+        return false
+    end
+    return true
+end
+
+# update incumbent from OA solver
+function update_incumbent_from_OA(opt::Optimizer)
+    # obj_val = JuMP.objective_value(opt.oa_model)
+    sol = get_value(opt.oa_vars, opt.lazy_cb)
+    obj_val = LinearAlgebra.dot(opt.c, sol)
+    if obj_val < opt.obj_value
+        # update incumbent and objective value
+        copyto!(opt.incumbent, sol)
+        opt.obj_value = obj_val
+        # println("new incumbent")
+        opt.new_incumbent = true
+    end
 end

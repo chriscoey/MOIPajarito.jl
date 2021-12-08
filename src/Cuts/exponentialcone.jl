@@ -36,6 +36,10 @@ function add_subp_cuts(
 
     # strengthened cut is (p, p * (log(r / -p) + 1), r)
     q = p * (log(r / -p) + 1)
+    if r < 1e-9
+        # TODO needed for GLPK
+        r = 0.0
+    end
     (u, v, w) = s_vars
     expr = JuMP.@expression(opt.oa_model, p * u + q * v + r * w)
     return add_cut(expr, opt)
@@ -48,10 +52,14 @@ function add_sep_cuts(
     ::MOI.ExponentialCone,
 )
     (us, vs, ws) = s
+    if min(ws, vs) <= -opt.tol_feas
+        error("exp cone point violates initial cuts")
+    end
     if min(ws, vs) <= 0
-        # cannot derive gradient cuts
+        # error("TODO add a cut")
         return 0
     end
+
     # check s ∉ K
     if vs * log(ws / vs) - us > -opt.tol_feas
         return 0
@@ -60,6 +68,6 @@ function add_sep_cuts(
     # gradient cut is (-1, log(ws / vs) - 1, ws / vs)
     (u, v, w) = s_vars
     p = log(ws / vs) - 1
-    expr = JuMP.@expression(opt.oa_model, -u + p * v + v / ws * w)
+    expr = JuMP.@expression(opt.oa_model, -u + p * v + vs / ws * w)
     return add_cut(expr, opt)
 end
