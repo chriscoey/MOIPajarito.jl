@@ -18,8 +18,9 @@ julia = "1.6"
 [extras]
 ECOS = "e2685f51-7e38-5353-a97d-a921fd2c8199"
 GLPK = "60bf3e95-4087-53dc-ae20-288a0d20c6a6"
+Hypatia = "b99e6be6-89ff-11e8-14f8-45c827f4f8f2"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["ECOS", "GLPK", "JuMP", "Test"]
+test = ["ECOS", "GLPK", "Hypatia", "JuMP", "Test"]
