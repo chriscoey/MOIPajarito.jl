@@ -11,10 +11,9 @@ const CR = JuMP.ConstraintRef
 
 import MOIPajarito: Optimizer
 
-# include("arrayutilities.jl")
 include("secondordercone.jl")
 include("exponentialcone.jl")
-# include("powercone.jl")
+include("powercone.jl")
 include("positivesemidefiniteconetriangle.jl")
 
 # initial fixed cuts (default to none)
@@ -22,6 +21,7 @@ include("positivesemidefiniteconetriangle.jl")
 
 # strengthened subproblem dual cuts (default to no strengthening)
 # function add_subp_cuts(opt::Optimizer, z::Vector{Float64}, s_vars::Vector{VR}, ::AVS)
+#     # TODO MOI.Utilities.set_dot
 #     expr = JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
 #     return add_cut(expr, opt)
 # end

@@ -31,7 +31,7 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "iteration_limit" => 30,
         "time_limit" => 30.0,
     )
-    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _psd1, _psd2, _expdesign]
+    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
     @testset "$inst" for inst in insts
         inst(opt)
     end
@@ -175,6 +175,71 @@ function _exp2(opt)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.INFEASIBLE
     @test JuMP.primal_status(m) == MOI.NO_SOLUTION
+    return
+end
+
+function _pow1(opt)
+    TOL = 1e-4
+    m = JuMP.Model(opt)
+
+    JuMP.@variable(m, x)
+    JuMP.@variable(m, y)
+    JuMP.@variable(m, z)
+    JuMP.@constraint(m, z >= 0.5)
+    JuMP.@objective(m, Min, x + 2y)
+    JuMP.@constraint(m, [x, y, z] in MOI.PowerCone(0.5))
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    rt2 = sqrt(2)
+    @test isapprox(JuMP.objective_value(m), rt2, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), rt2, atol = TOL)
+    @test isapprox(JuMP.value(x), rt2 / 2, atol = TOL)
+    @test isapprox(JuMP.value(y), rt2 / 4, atol = TOL)
+    @test isapprox(JuMP.value(z), 0.5, atol = TOL)
+
+    JuMP.set_integer(x)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 1.5, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 1.5, atol = TOL)
+    @test isapprox(JuMP.value(x), 1, atol = TOL)
+    @test isapprox(JuMP.value(y), 0.25, atol = TOL)
+
+    JuMP.set_integer(z)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 3, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 3, atol = TOL)
+    @test isapprox(JuMP.value(x), 2, atol = TOL)
+    @test isapprox(JuMP.value(y), 0.5, atol = TOL)
+    @test isapprox(JuMP.value(z), 1, atol = TOL)
+    return
+end
+
+function _pow2(opt)
+    TOL = 1e-4
+    m = JuMP.Model(opt)
+    JuMP.@variable(m, x[1:3])
+    JuMP.@variable(m, y[1:3], Bin)
+    JuMP.@constraint(m, [i in 1:3], [x[i] / 3, 1, y[i] - 0.5] in MOI.PowerCone(1 / 3))
+    c1 = JuMP.@constraint(m, sum(x) <= 1)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.INFEASIBLE
+    @test JuMP.primal_status(m) == MOI.NO_SOLUTION
+
+    JuMP.delete(m, c1)
+    JuMP.@objective(m, Min, sum(x))
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 9 / 8, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 9 / 8, atol = TOL)
+    @test isapprox(JuMP.value.(x), fill(3 / 8, 3), atol = TOL)
+    y_val = JuMP.value.(y)
+    @test isapprox(y_val, round.(y_val), atol = TOL)
     return
 end
 
