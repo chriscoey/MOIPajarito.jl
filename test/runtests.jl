@@ -45,7 +45,7 @@ Test.@testset "Pajarito tests" begin
     println("starting JuMP tests")
     include("JuMP_tests.jl")
     Test.@testset "JuMP tests" begin
-        TestJuMP.runtests(oa_solver, ecos)
-        # TestJuMP.runtests(oa_solver, hypatia)
+        # TestJuMP.runtests(oa_solver, ecos)
+        TestJuMP.runtests(oa_solver, hypatia)
     end
 end

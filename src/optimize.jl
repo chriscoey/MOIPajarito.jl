@@ -29,17 +29,20 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     h::Vector{Float64}
     cones::Vector{AVS}
     cone_idxs::Vector{UnitRange{Int}}
+    num_int_vars::Int
 
-    # models
+    # models, variables, etc
+    oa_model::JuMP.Model
     relax_model::JuMP.Model
     subp_model::JuMP.Model
-    oa_model::JuMP.Model
+    oa_vars::Vector{VR}
     relax_vars::Vector{VR}
     subp_vars::Vector{VR}
-    oa_vars::Vector{VR}
     subp_eq::Union{Nothing, CR}
     subp_cones::Vector{CR}
-    num_int_vars::Int
+    c_int::Vector{Float64}
+    A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
+    G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     oa_cones::Vector{Tuple{CR, CR, Vector{VR}, AVS}}
 
     # modified throughout optimize and used after optimize
@@ -358,32 +361,16 @@ end
 # solve subproblem with new integer variable bounds
 # TODO handle non-equal bounds in lazy callback
 function solve_subproblem(opt::Optimizer)
-    # update integer bounds
-    # for i in 1:opt.num_int_vars
-    #     x_i = opt.oa_vars[i]
-    #     val = get_value(x_i, opt.lazy_cb)
-    #     @assert isapprox(val, round(val), atol = 1e-10)
-    #     # TODO map oa var to conic var
-    #     JuMP.fix(opt.subp_vars[i], val; force = true)
-    # end
-
-    # TODO for now maybe delete the equality constraints and re-add
-    # or find a jump function to modify the constant in the VAF
-    x_int = opt.oa_vars[1:opt.num_int_vars]
+    x_int = opt.oa_vars[1:(opt.num_int_vars)]
     int_sol = get_value.(x_int, opt.lazy_cb)
-    @show int_sol
 
-    # TODO want https://github.com/jump-dev/JuMP.jl/issues/1183
+    # TODO want JuMP MultirowChange, see https://github.com/jump-dev/JuMP.jl/issues/1183
     moi_model = JuMP.backend(opt.subp_model)
     if !isnothing(opt.subp_eq)
-        A_int = opt.A[:, 1:opt.num_int_vars] # TODO
-        new_b = opt.b - A_int * int_sol
-        @show new_b
+        new_b = opt.b - opt.A_int * int_sol
         MOI.modify(moi_model, JuMP.index(opt.subp_eq), MOI.VectorConstantChange(new_b))
     end
-
-    G_int = opt.G[:, 1:opt.num_int_vars]
-    new_h = opt.h - G_int * int_sol
+    new_h = opt.h - opt.G_int * int_sol
     for (cr, _, idxs) in zip(opt.subp_cones, opt.cones, opt.cone_idxs)
         MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
     end
@@ -391,22 +378,20 @@ function solve_subproblem(opt::Optimizer)
     # solve
     JuMP.optimize!(opt.subp_model)
     subp_status = JuMP.termination_status(opt.subp_model)
-
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
 
     if subp_status == MOI.OPTIMAL
-        c_int = opt.c[1:opt.num_int_vars]
-        obj_val = JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(c_int, int_sol)
-        @show obj_val
+        obj_val =
+            JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
         if obj_val < opt.obj_value
             # update incumbent and objective value
             subp_sol = JuMP.value.(opt.subp_vars)
-            opt.incumbent[1:opt.num_int_vars] = int_sol
+            opt.incumbent[1:(opt.num_int_vars)] = int_sol
             opt.incumbent[(opt.num_int_vars + 1):end] = subp_sol
             opt.obj_value = obj_val
-            println("new incumbent")
+            # println("new incumbent")
             opt.new_incumbent = true
         end
         return false
@@ -465,23 +450,17 @@ end
 
 # compute objective relative gap
 # TODO decide whether to use 1e-5 constant
-function get_obj_rel_gap(opt::Optimizer)
-    return get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
-end
+get_obj_rel_gap(opt::Optimizer) = get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
 
 # setup conic and OA models
-# TODO maybe just add directly in copy_to
 function setup_models(opt::Optimizer)
-    # TODO split the variables into integer and continuous - reorder them first during copy_to
-    # TODO could also split A and G construction there, but maybe too annoying
-    # maybe should have just kept each h_i and G_i for the individual cone constraints separate
     has_eq = !isempty(opt.b)
 
     # mixed-integer OA model
     oa = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
     x_oa = JuMP.@variable(oa, [1:length(opt.c)])
     opt.oa_vars = x_oa
-    for i in 1:opt.num_int_vars
+    for i in 1:(opt.num_int_vars)
         JuMP.set_integer(x_oa[i])
     end
     JuMP.@objective(oa, Min, JuMP.dot(opt.c, x_oa))
@@ -499,25 +478,19 @@ function setup_models(opt::Optimizer)
     end
 
     # differentiate integer and continuous variables
-    @show opt.num_int_vars
     num_cont_vars = length(opt.c) - opt.num_int_vars
-    @show num_cont_vars
-    int_range = 1:opt.num_int_vars
+    int_range = 1:(opt.num_int_vars)
     cont_range = (opt.num_int_vars + 1):length(opt.c)
-    c_int = opt.c[int_range]
-    G_int = opt.G[:, int_range]
+    opt.c_int = opt.c[int_range]
+    opt.G_int = opt.G[:, int_range]
     c_cont = opt.c[cont_range]
     G_cont = opt.G[:, cont_range]
     if has_eq
-        A_int = opt.A[:, int_range]
+        opt.A_int = opt.A[:, int_range]
         A_cont = opt.A[:, cont_range]
     end
 
     # continuous subproblem model
-    # opt.subp_model = relax
-    # opt.subp_vars = x_relax
-    # TODO delete integer vars, but have to be able to reconstruct incumbent solution and handle obj offset
-    # TODO try modify the b vector for conic solvers that allow it
     subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
     x_subp = JuMP.@variable(subp, [1:num_cont_vars])
     opt.subp_vars = x_subp
@@ -532,11 +505,12 @@ function setup_models(opt::Optimizer)
     opt.oa_cones = Tuple{CR, CR, Vector{VR}, AVS}[]
     opt.subp_cones = CR[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
+        # TODO should keep h_i and G_i separate for the individual cone constraints
         h_i = opt.h[idxs]
         G_i = opt.G[idxs, :]
-        K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
-
         G_cont_i = G_cont[idxs, :]
+
+        K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
         K_subp_i = JuMP.@constraint(subp, -G_cont_i * x_subp in cone)
         push!(opt.subp_cones, K_subp_i)
 
@@ -555,6 +529,7 @@ function setup_models(opt::Optimizer)
     if opt.verbose
         println("no conic constraints need outer approximation")
     end
+
     JuMP.optimize!(opt.oa_model)
     opt.status = JuMP.termination_status(opt.oa_model)
     if opt.status == MOI.OPTIMAL
