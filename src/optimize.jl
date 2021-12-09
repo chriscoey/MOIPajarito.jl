@@ -63,7 +63,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         tol_feas::Float64 = 1e-7,
         tol_rel_gap::Float64 = 1e-5,
         tol_abs_gap::Float64 = 1e-7,
-        time_limit::Float64 = Inf,
+        time_limit::Float64 = 1e6,
         iteration_limit::Int = 1000,
         use_iterative_method::Union{Nothing, Bool} = nothing,
         oa_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
@@ -153,10 +153,8 @@ end
 
 # one iteration of the iterative method
 function run_iterative_method(opt::Optimizer)
-    time_finish = check_time_limit(opt)
-    if time_finish
-        return true
-    end
+    time_finish = check_set_time_limit(opt, opt.oa_model)
+    time_finish && return true
 
     # solve OA model
     JuMP.optimize!(opt.oa_model)
@@ -281,7 +279,8 @@ function run_one_tree_method(opt::Optimizer)
     end
     MOI.set(opt.oa_model, MOI.HeuristicCallback(), heuristic_cb)
 
-    check_time_limit(opt)
+    time_finish = check_set_time_limit(opt, opt.oa_model)
+    time_finish && return true
     JuMP.optimize!(opt.oa_model)
     oa_status = JuMP.termination_status(opt.oa_model)
 
@@ -296,7 +295,7 @@ function run_one_tree_method(opt::Optimizer)
     return
 end
 
-function check_time_limit(opt::Optimizer)
+function check_set_time_limit(opt::Optimizer, model::JuMP.Model)
     time_left = opt.time_limit - time() + opt.solve_time
     if time_left < 1e-3
         if opt.verbose
@@ -305,7 +304,7 @@ function check_time_limit(opt::Optimizer)
         opt.status = MOI.TIME_LIMIT
         return true
     end
-    JuMP.set_time_limit_sec(opt.oa_model, time_left)
+    JuMP.set_time_limit_sec(model, time_left)
     return false
 end
 
@@ -313,6 +312,8 @@ function solve_relaxation(opt::Optimizer)
     if opt.verbose
         println("solving continuous relaxation")
     end
+    time_finish = check_set_time_limit(opt, opt.relax_model)
+    time_finish && return true
 
     JuMP.optimize!(opt.relax_model)
     relax_status = JuMP.termination_status(opt.relax_model)
@@ -376,6 +377,9 @@ function solve_subproblem(opt::Optimizer)
     end
 
     # solve
+    time_finish = check_set_time_limit(opt, opt.subp_model)
+    time_finish && return true
+
     JuMP.optimize!(opt.subp_model)
     subp_status = JuMP.termination_status(opt.subp_model)
     if opt.verbose

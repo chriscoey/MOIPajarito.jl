@@ -13,15 +13,6 @@ oa_solver = MOI.OptimizerWithAttributes(
     "mip_gap" => 1e-9,
 )
 
-# import Cbc
-# oa_solver = MOI.OptimizerWithAttributes(
-#     Cbc.Optimizer,
-#     MOI.Silent() => true,
-#     "integerTolerance" => 1e-9,
-#     "primalTolerance" => 1e-9,
-#     "ratioGap" => 1e-9,
-# )
-
 import ECOS
 ecos = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 
@@ -36,16 +27,15 @@ hypatia = MOI.OptimizerWithAttributes(
 
 println("starting Pajarito tests")
 Test.@testset "Pajarito tests" begin
-    # println("starting MOI tests")
-    # include("MOI_tests.jl")
-    # Test.@testset "MOI tests" begin
-    #     TestMOI.runtests(oa_solver, ecos)
-    # end
+    println("starting MOI tests")
+    include("MOI_tests.jl")
+    Test.@testset "MOI tests" begin
+        TestMOI.runtests(oa_solver, ecos)
+    end
 
     println("starting JuMP tests")
     include("JuMP_tests.jl")
     Test.@testset "JuMP tests" begin
-        # TestJuMP.runtests(oa_solver, ecos)
         TestJuMP.runtests(oa_solver, hypatia)
     end
 end
