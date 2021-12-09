@@ -83,7 +83,17 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     # variables
     n = MOI.get(src, MOI.NumberOfVariables()) # columns of A
     j = 0
+    # integer variables first
+    cis = MOI.get(src, MOI.ListOfConstraintIndices{VI, MOI.Integer}())
+    opt.num_int_vars = length(cis)
+    for ci in cis
+        j += 1
+        idx_map[ci] = ci
+        idx_map[VI(ci.value)] = VI(j)
+    end
+    # continuous variables last
     for vj in MOI.get(src, MOI.ListOfVariableIndices())
+        haskey(idx_map, vj) && continue
         j += 1
         idx_map[vj] = VI(j)
     end
@@ -95,12 +105,6 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
         throw(MOI.UnsupportedAttribute(attr))
     end
 
-    # integer variables
-    cis = MOI.get(src, MOI.ListOfConstraintIndices{VI, MOI.Integer}())
-    opt.integer_vars = [idx_map[VI(ci.value)].value for ci in cis]
-    for ci in cis
-        idx_map[ci] = ci
-    end
     # objective
     opt.obj_sense = MOI.MIN_SENSE
     model_c = zeros(n)
@@ -139,11 +143,11 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     # equality constraints
     (IA, JA, VA) = (Int[], Int[], Float64[])
     model_b = Float64[]
-    opt.zeros_idxs = zeros_idxs = Vector{UnitRange{Int}}()
+    # opt.zeros_idxs = zeros_idxs = Vector{UnitRange{Int}}()
     for F in (VV, VAF), ci in get_src_cons(F, MOI.Zeros)
         fi = get_con_fun(ci)
         idxs = _constraint_IJV(IA, JA, VA, model_b, fi, idx_map)
-        push!(zeros_idxs, idxs)
+        # push!(zeros_idxs, idxs)
         idx_map[ci] = ci
     end
     opt.A = SparseArrays.dropzeros!(SparseArrays.sparse(IA, JA, VA, length(model_b), n))

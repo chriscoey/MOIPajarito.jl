@@ -15,23 +15,24 @@ function runtests(oa_solver, conic_solver)
     @testset "iterative method" begin
         run_jump_tests(true, oa_solver, conic_solver)
     end
-    @testset "one tree method" begin
-        run_jump_tests(false, oa_solver, conic_solver)
-    end
+    # @testset "one tree method" begin
+    #     run_jump_tests(false, oa_solver, conic_solver)
+    # end
     return
 end
 
 function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
     opt = JuMP.optimizer_with_attributes(
         MOIPajarito.Optimizer,
-        "verbose" => false,
+        # "verbose" => false,
         "use_iterative_method" => use_iter,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,
         "time_limit" => 30.0,
     )
-    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
+    # insts = [_soc1, _soc2, _soc3, _exp1, _exp2,]# _pow1, _pow2, _psd1, _psd2, _expdesign]
+    insts = [_soc1,]
     @testset "$inst" for inst in insts
         inst(opt)
     end
@@ -90,7 +91,6 @@ function _soc2(opt)
     JuMP.@constraint(m, z <= 2.5)
     JuMP.@objective(m, Min, x + 2y)
     JuMP.@constraint(m, [z, x, y] in JuMP.SecondOrderCone())
-
     JuMP.set_integer(x)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL
@@ -102,7 +102,6 @@ function _soc2(opt)
     @test isapprox(JuMP.value(y), -sqrt(3), atol = TOL)
     @test isapprox(JuMP.value(z), 2, atol = TOL)
 
-    # TODO see https://github.com/jump-dev/MathOptInterface.jl/issues/1698
     JuMP.unset_integer(x)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL

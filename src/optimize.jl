@@ -18,7 +18,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
 
     # used by MOI wrapper
     obj_sense::MOI.OptimizationSense
-    zeros_idxs::Vector{UnitRange{Int}} # TODO needed?
+    # zeros_idxs::Vector{UnitRange{Int}} # TODO needed?
 
     # problem data
     obj_offset::Float64
@@ -33,11 +33,14 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     # models
     relax_model::JuMP.Model
     subp_model::JuMP.Model
-    subp_vars::Vector{VR}
     oa_model::JuMP.Model
+    relax_vars::Vector{VR}
+    subp_vars::Vector{VR}
     oa_vars::Vector{VR}
-    integer_vars::Vector{Int}
-    oa_cones::Vector{Tuple{CR, Vector{VR}, AVS}}
+    subp_eq::Union{Nothing, CR}
+    subp_cones::Vector{CR}
+    num_int_vars::Int
+    oa_cones::Vector{Tuple{CR, CR, Vector{VR}, AVS}}
 
     # modified throughout optimize and used after optimize
     status::MOI.TerminationStatusCode
@@ -80,8 +83,9 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
 end
 
 function empty_all(opt::Optimizer)
-    opt.oa_vars = VI[]
-    opt.subp_vars = VI[]
+    opt.relax_vars = VR[]
+    opt.oa_vars = VR[]
+    opt.subp_vars = VR[]
     opt.incumbent = Float64[]
     empty_optimize(opt)
     return opt
@@ -125,7 +129,7 @@ function optimize(opt::Optimizer)
     end
 
     # add continuous relaxation cuts and initial fixed cuts
-    add_subp_cuts(opt)
+    add_relax_cuts(opt)
     add_init_cuts(opt)
 
     if opt.use_iterative_method
@@ -334,8 +338,9 @@ function solve_relaxation(opt::Optimizer)
         return false
     end
     # @assert JuMP.has_duals(opt.relax_model)
+    # TODO if optimal solution to conic relaxation is integral, don't need to do OA
 
-    if isempty(opt.integer_vars)
+    if iszero(opt.num_int_vars)
         # problem is continuous
         if opt.verbose
             println("problem is continuous; terminating without using OA solver")
@@ -343,11 +348,10 @@ function solve_relaxation(opt::Optimizer)
         if relax_status == MOI.OPTIMAL
             opt.status = relax_status
             opt.obj_value = JuMP.objective_value(opt.relax_model)
-            opt.incumbent = JuMP.value.(opt.subp_vars)
+            opt.incumbent = JuMP.value.(opt.relax_vars)
         end
         return true
     end
-
     return false
 end
 
@@ -355,12 +359,33 @@ end
 # TODO handle non-equal bounds in lazy callback
 function solve_subproblem(opt::Optimizer)
     # update integer bounds
-    for i in opt.integer_vars
-        x_i = opt.oa_vars[i]
-        val = get_value(x_i, opt.lazy_cb)
-        @assert isapprox(val, round(val), atol = 1e-10)
-        # TODO map oa var to conic var
-        JuMP.fix(opt.subp_vars[i], val; force = true)
+    # for i in 1:opt.num_int_vars
+    #     x_i = opt.oa_vars[i]
+    #     val = get_value(x_i, opt.lazy_cb)
+    #     @assert isapprox(val, round(val), atol = 1e-10)
+    #     # TODO map oa var to conic var
+    #     JuMP.fix(opt.subp_vars[i], val; force = true)
+    # end
+
+    # TODO for now maybe delete the equality constraints and re-add
+    # or find a jump function to modify the constant in the VAF
+    x_int = opt.oa_vars[1:opt.num_int_vars]
+    int_sol = get_value.(x_int, opt.lazy_cb)
+    @show int_sol
+
+    # TODO want https://github.com/jump-dev/JuMP.jl/issues/1183
+    moi_model = JuMP.backend(opt.subp_model)
+    if !isnothing(opt.subp_eq)
+        A_int = opt.A[:, 1:opt.num_int_vars] # TODO
+        new_b = opt.b - A_int * int_sol
+        @show new_b
+        MOI.modify(moi_model, JuMP.index(opt.subp_eq), MOI.VectorConstantChange(new_b))
+    end
+
+    G_int = opt.G[:, 1:opt.num_int_vars]
+    new_h = opt.h - G_int * int_sol
+    for (cr, _, idxs) in zip(opt.subp_cones, opt.cones, opt.cone_idxs)
+        MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
     end
 
     # solve
@@ -372,13 +397,16 @@ function solve_subproblem(opt::Optimizer)
     end
 
     if subp_status == MOI.OPTIMAL
-        obj_val = JuMP.objective_value(opt.subp_model)
+        c_int = opt.c[1:opt.num_int_vars]
+        obj_val = JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(c_int, int_sol)
+        @show obj_val
         if obj_val < opt.obj_value
             # update incumbent and objective value
-            sol = JuMP.value.(opt.subp_vars)
-            copyto!(opt.incumbent, sol)
+            subp_sol = JuMP.value.(opt.subp_vars)
+            opt.incumbent[1:opt.num_int_vars] = int_sol
+            opt.incumbent[(opt.num_int_vars + 1):end] = subp_sol
             opt.obj_value = obj_val
-            # println("new incumbent")
+            println("new incumbent")
             opt.new_incumbent = true
         end
         return false
@@ -444,55 +472,89 @@ end
 # setup conic and OA models
 # TODO maybe just add directly in copy_to
 function setup_models(opt::Optimizer)
-    # continuous relaxation model
-    relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
-    x_relax = JuMP.@variable(relax, [1:length(opt.c)])
-    JuMP.@objective(relax, Min, JuMP.dot(opt.c, x_relax))
-    JuMP.@constraint(relax, opt.A * x_relax .== opt.b)
-
-    # continuous subproblem model
-    opt.subp_model = relax
-    opt.subp_vars = x_relax
-    # TODO delete integer vars
-    # subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
-    # x_subp = JuMP.@variable(subp, [1:length(opt.c)])
-    # opt.subp_vars = x_subp
-    # JuMP.@objective(subp, Min, JuMP.dot(opt.c, x_subp))
-    # JuMP.@constraint(subp, opt.A * x_subp .== opt.b)
+    # TODO split the variables into integer and continuous - reorder them first during copy_to
+    # TODO could also split A and G construction there, but maybe too annoying
+    # maybe should have just kept each h_i and G_i for the individual cone constraints separate
+    has_eq = !isempty(opt.b)
 
     # mixed-integer OA model
     oa = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
     x_oa = JuMP.@variable(oa, [1:length(opt.c)])
     opt.oa_vars = x_oa
-    for i in opt.integer_vars
+    for i in 1:opt.num_int_vars
         JuMP.set_integer(x_oa[i])
     end
     JuMP.@objective(oa, Min, JuMP.dot(opt.c, x_oa))
-    JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
+    if has_eq
+        JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
+    end
+
+    # continuous relaxation model
+    relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
+    x_relax = JuMP.@variable(relax, [1:length(opt.c)])
+    opt.relax_vars = x_relax
+    JuMP.@objective(relax, Min, JuMP.dot(opt.c, x_relax))
+    if has_eq
+        JuMP.@constraint(relax, opt.A * x_relax .== opt.b)
+    end
+
+    # differentiate integer and continuous variables
+    @show opt.num_int_vars
+    num_cont_vars = length(opt.c) - opt.num_int_vars
+    @show num_cont_vars
+    int_range = 1:opt.num_int_vars
+    cont_range = (opt.num_int_vars + 1):length(opt.c)
+    c_int = opt.c[int_range]
+    G_int = opt.G[:, int_range]
+    c_cont = opt.c[cont_range]
+    G_cont = opt.G[:, cont_range]
+    if has_eq
+        A_int = opt.A[:, int_range]
+        A_cont = opt.A[:, cont_range]
+    end
+
+    # continuous subproblem model
+    # opt.subp_model = relax
+    # opt.subp_vars = x_relax
+    # TODO delete integer vars, but have to be able to reconstruct incumbent solution and handle obj offset
+    # TODO try modify the b vector for conic solvers that allow it
+    subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
+    x_subp = JuMP.@variable(subp, [1:num_cont_vars])
+    opt.subp_vars = x_subp
+    JuMP.@objective(subp, Min, JuMP.dot(c_cont, x_subp))
+    if has_eq
+        opt.subp_eq = JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b)))
+    else
+        opt.subp_eq = nothing
+    end
 
     # conic constraints
-    opt.oa_cones = Tuple{CR, Vector{VR}, AVS}[]
+    opt.oa_cones = Tuple{CR, CR, Vector{VR}, AVS}[]
+    opt.subp_cones = CR[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         h_i = opt.h[idxs]
         G_i = opt.G[idxs, :]
         K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
+
+        G_cont_i = G_cont[idxs, :]
+        K_subp_i = JuMP.@constraint(subp, -G_cont_i * x_subp in cone)
+        push!(opt.subp_cones, K_subp_i)
+
         if MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
             JuMP.@constraint(oa, h_i - G_i * x_oa in cone)
         else
+            # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
             s_i = JuMP.@variable(oa, [1:length(idxs)])
             JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
-            push!(opt.oa_cones, (K_relax_i, s_i, cone))
+            push!(opt.oa_cones, (K_relax_i, K_subp_i, s_i, cone))
         end
     end
-    if !isempty(opt.oa_cones)
-        return false
-    end
 
+    isempty(opt.oa_cones) || return false
     # no conic constraints need outer approximation, so just solve the OA model and finish
     if opt.verbose
         println("no conic constraints need outer approximation")
     end
-
     JuMP.optimize!(opt.oa_model)
     opt.status = JuMP.termination_status(opt.oa_model)
     if opt.status == MOI.OPTIMAL
@@ -500,7 +562,6 @@ function setup_models(opt::Optimizer)
         opt.obj_bound = JuMP.objective_bound(opt.oa_model)
         opt.incumbent = JuMP.value.(opt.oa_vars)
     end
-
     return true
 end
 
@@ -522,13 +583,40 @@ end
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (_, s_vars, cone) in opt.oa_cones
+    for (_, _, s_vars, cone) in opt.oa_cones
         opt.num_cuts += Cuts.add_init_cuts(opt, s_vars, cone)
     end
     return nothing
 end
 
-# subproblem dual cuts
+# add relaxation dual cuts
+function add_relax_cuts(opt::Optimizer)
+    if !JuMP.has_duals(opt.relax_model)
+        return 0
+    end
+
+    num_cuts_before = opt.num_cuts
+    for (ci, _, s_vars, cone) in opt.oa_cones
+        z = JuMP.dual(ci)
+        z_norm = LinearAlgebra.norm(z, Inf)
+        if z_norm < 1e-10 # TODO tune
+            continue # discard duals with small norm
+        elseif z_norm > 1e12
+            @warn("norm of dual is large ($z_norm)")
+        end
+        opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
+    end
+
+    if opt.num_cuts <= num_cuts_before
+        if opt.verbose
+            println("continuous relaxation cuts could not be added")
+        end
+        return false
+    end
+    return true
+end
+
+# add subproblem dual cuts
 # TODO save the list of cut expressions (all, even if not added this round)
 # to add at repeated integral solutions.
 function add_subp_cuts(opt::Optimizer)
@@ -537,7 +625,7 @@ function add_subp_cuts(opt::Optimizer)
     end
 
     num_cuts_before = opt.num_cuts
-    for (ci, s_vars, cone) in opt.oa_cones
+    for (_, ci, s_vars, cone) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -565,11 +653,11 @@ end
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
     # TODO can't get the values after added a cut, due to "optimize not called"
-    ss = [get_value(s_vars, opt.lazy_cb) for (ci, s_vars, cone) in opt.oa_cones]
-    for (s, (ci, s_vars, cone)) in zip(ss, opt.oa_cones)
+    ss = [get_value(s_vars, opt.lazy_cb) for (_, _, s_vars, _) in opt.oa_cones]
+    for (s, (_, _, s_vars, cone)) in zip(ss, opt.oa_cones)
         opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
     end
-    # for (ci, s_vars, cone) in opt.oa_cones
+    # for (_, _, s_vars, cone) in opt.oa_cones
     #     s = get_value(s_vars, opt.lazy_cb)
     #     opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
     # end
