@@ -312,8 +312,9 @@ function solve_relaxation(opt::Optimizer)
     if opt.verbose
         println("solving continuous relaxation")
     end
-    time_finish = check_set_time_limit(opt, opt.relax_model)
-    time_finish && return true
+    # TODO ECOS errors:
+    # time_finish = check_set_time_limit(opt, opt.relax_model)
+    # time_finish && return true
 
     JuMP.optimize!(opt.relax_model)
     relax_status = JuMP.termination_status(opt.relax_model)
@@ -377,8 +378,9 @@ function solve_subproblem(opt::Optimizer)
     end
 
     # solve
-    time_finish = check_set_time_limit(opt, opt.subp_model)
-    time_finish && return true
+    # TODO ECOS errors:
+    # time_finish = check_set_time_limit(opt, opt.subp_model)
+    # time_finish && return true
 
     JuMP.optimize!(opt.subp_model)
     subp_status = JuMP.termination_status(opt.subp_model)
