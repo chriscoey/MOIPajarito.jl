@@ -28,9 +28,9 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,
-        "time_limit" => 60.0,
+        # "time_limit" => 60.0,
     )
-    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, ]#_pow1, _pow2, _psd1, _psd2, _expdesign]
+    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
     @testset "$inst" for inst in insts
         inst(opt)
     end

@@ -153,11 +153,11 @@ end
 
 # one iteration of the iterative method
 function run_iterative_method(opt::Optimizer)
+    # solve OA model
     time_finish = check_set_time_limit(opt, opt.oa_model)
     time_finish && return true
-
-    # solve OA model
     JuMP.optimize!(opt.oa_model)
+
     oa_status = JuMP.termination_status(opt.oa_model)
     if oa_status == MOI.INFEASIBLE
         if opt.verbose
@@ -282,9 +282,8 @@ function run_one_tree_method(opt::Optimizer)
     time_finish = check_set_time_limit(opt, opt.oa_model)
     time_finish && return true
     JuMP.optimize!(opt.oa_model)
-    oa_status = JuMP.termination_status(opt.oa_model)
 
-    # TODO handle statuses properly
+    oa_status = JuMP.termination_status(opt.oa_model)
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
         opt.obj_bound = JuMP.objective_bound(opt.oa_model)
@@ -315,10 +314,9 @@ function solve_relaxation(opt::Optimizer)
     # TODO ECOS errors:
     # time_finish = check_set_time_limit(opt, opt.relax_model)
     # time_finish && return true
-
     JuMP.optimize!(opt.relax_model)
-    relax_status = JuMP.termination_status(opt.relax_model)
 
+    relax_status = JuMP.termination_status(opt.relax_model)
     if relax_status == MOI.OPTIMAL
         opt.obj_bound = JuMP.dual_objective_value(opt.relax_model)
         if opt.verbose
@@ -381,13 +379,12 @@ function solve_subproblem(opt::Optimizer)
     # TODO ECOS errors:
     # time_finish = check_set_time_limit(opt, opt.subp_model)
     # time_finish && return true
-
     JuMP.optimize!(opt.subp_model)
+
     subp_status = JuMP.termination_status(opt.subp_model)
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
-
     if subp_status == MOI.OPTIMAL
         obj_val =
             JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
@@ -531,12 +528,15 @@ function setup_models(opt::Optimizer)
     end
 
     isempty(opt.oa_cones) || return false
-    # no conic constraints need outer approximation, so just solve the OA model and finish
     if opt.verbose
         println("no conic constraints need outer approximation")
     end
 
+    # no conic constraints need outer approximation, so just solve the OA model and finish
+    time_finish = check_set_time_limit(opt, opt.oa_model)
+    time_finish && return true
     JuMP.optimize!(opt.oa_model)
+
     opt.status = JuMP.termination_status(opt.oa_model)
     if opt.status == MOI.OPTIMAL
         opt.obj_value = JuMP.objective_value(opt.oa_model)
