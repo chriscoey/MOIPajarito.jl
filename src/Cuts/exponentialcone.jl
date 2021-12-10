@@ -30,7 +30,7 @@ function add_subp_cuts(
     r = z[3]
     if p >= 0 || r <= 0
         # z ∉ K
-        @warn("dual vector is not in the dual cone")
+        @warn("exp cone dual vector is not in the dual cone")
         return 0
     end
 
@@ -38,10 +38,11 @@ function add_subp_cuts(
     q = p * (log(r / -p) + 1)
     if r < 1e-9
         # TODO needed for GLPK
+        @warn("exp cone subproblem cut has bad numerics")
         r = 0.0
     end
-    (u, v, w) = s_vars
-    expr = JuMP.@expression(opt.oa_model, p * u + q * v + r * w)
+    z = [p, q, r]
+    expr = dot_expr(z, s_vars, opt)
     return add_cut(expr, opt)
 end
 
@@ -65,9 +66,8 @@ function add_sep_cuts(
         return 0
     end
 
-    # gradient cut is (-1, log(ws / vs) - 1, ws / vs)
-    (u, v, w) = s_vars
-    p = log(ws / vs) - 1
-    expr = JuMP.@expression(opt.oa_model, -u + p * v + vs / ws * w)
+    # gradient cut is (-1, log(ws / vs) - 1, vs / ws)
+    z = [-1, log(ws / vs) - 1, vs / ws]
+    expr = dot_expr(z, s_vars, opt)
     return add_cut(expr, opt)
 end

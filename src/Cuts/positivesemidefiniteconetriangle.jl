@@ -3,12 +3,12 @@ positive semidefinite cone triangle (unscaled)
 w ⪰ 0
 =#
 
-function vec_to_symm(d::Int, vec::Vector{T}, scal::Real = 1.0) where {T}
-    mat = zeros(typeof(1.0 * vec[1]), d, d)
+function vec_to_symm(d::Int, vec::Vector{T}) where {T}
+    mat = Matrix{T}(undef, d, d)
     k = 1
     for j in 1:d
         for i in 1:(j - 1)
-            mat[i, j] = mat[j, i] = scal * vec[k]
+            mat[i, j] = mat[j, i] = vec[k]
             k += 1
         end
         mat[j, j] = vec[k]
@@ -47,17 +47,19 @@ function add_subp_cuts(
     # strengthened cuts from eigendecomposition are λᵢ * rᵢ * rᵢ'
     d = cone.side_dimension
     R = vec_to_symm(d, z)
-    F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-12, Inf) # TODO tune
+    F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-10, Inf) # TODO tune
     if isempty(F.values)
         return 0
     end
+
     R_eig = F.vectors * LinearAlgebra.Diagonal(sqrt.(F.values))
     W = vec_to_symm(d, s_vars)
     num_cuts = 0
     for i in eachindex(F.values)
         @views r_i = R_eig[:, i]
         R_i = r_i * r_i'
-        expr = JuMP.@expression(opt.oa_model, JuMP.dot(R_i, W))
+        clean_array!(R_i) && continue
+        expr = dot_expr(R_i, W, opt)
         num_cuts += add_cut(expr, opt)
     end
     return num_cuts
@@ -83,7 +85,8 @@ function add_sep_cuts(
     for i in eachindex(F.values)
         @views w_i = F.vectors[:, i]
         W_i = w_i * w_i'
-        expr = JuMP.@expression(opt.oa_model, JuMP.dot(W_i, W))
+        clean_array!(W_i) && continue
+        expr = dot_expr(W_i, W, opt)
         num_cuts += add_cut(expr, opt)
     end
     return num_cuts

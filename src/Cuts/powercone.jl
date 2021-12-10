@@ -68,6 +68,5 @@ function add_sep_cuts(
     p = t * (us / vs)^(t - 1)
     q = (1 - t) * (us / vs)^t
     expr = JuMP.@expression(opt.oa_model, p * u + q * v - sign(ws) * w)
-    @warn("added sep cut")
     return add_cut(expr, opt)
 end

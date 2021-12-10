@@ -8,9 +8,9 @@ import GLPK
 oa_solver = MOI.OptimizerWithAttributes(
     GLPK.Optimizer,
     MOI.Silent() => true,
-    "tol_int" => 1e-9,
-    "tol_bnd" => 1e-9,
-    "mip_gap" => 1e-9,
+    "tol_int" => 1e-10,
+    "tol_bnd" => 1e-10,
+    "mip_gap" => 1e-10,
 )
 
 import ECOS
@@ -20,9 +20,11 @@ import Hypatia
 hypatia = MOI.OptimizerWithAttributes(
     Hypatia.Optimizer,
     MOI.Silent() => true,
-    # "tol_feas" => 1e-7,
-    # "tol_rel_opt" => 1e-7,
-    # "tol_abs_opt" => 1e-7,
+    "near_factor" => 100,
+    "tol_feas" => 1e-8,
+    "tol_rel_opt" => 1e-8,
+    "tol_abs_opt" => 1e-8,
+    "tol_slow" => 1e-2,
 )
 
 println("starting Pajarito tests")

@@ -17,12 +17,14 @@ const AVS = MOI.AbstractVectorSet
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 
+# supported cones for outer approximation
 const OACone = Union{
     MOI.SecondOrderCone,
     MOI.ExponentialCone,
     MOI.PowerCone{Float64},
     MOI.PositiveSemidefiniteConeTriangle,
 }
+
 include("optimize.jl")
 include("MOI_wrapper.jl")
 include("Cuts/Cuts.jl")

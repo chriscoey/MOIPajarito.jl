@@ -29,6 +29,14 @@ include("positivesemidefiniteconetriangle.jl")
 # separation cuts (default to none)
 # add_sep_cuts(::Optimizer, ::Vector{Float64}, ::Vector{VR}, ::AVS) = 0
 
+function dot_expr(
+    z::LinearAlgebra.AbstractVecOrMat{Float64},
+    s_vars::AbstractVecOrMat{VR},
+    opt::Optimizer,
+)
+    return JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
+end
+
 function add_cut(expr::JuMP.AffExpr, opt::Optimizer)
     return _add_cut(expr, opt.oa_model, opt.tol_feas, opt.lazy_cb)
 end
@@ -46,6 +54,18 @@ function _add_cut(expr::JuMP.AffExpr, model::JuMP.Model, tol_feas::Float64, cb)
         return 1
     end
     return 0
+end
+
+function clean_array!(z::AbstractArray)
+    # avoid poorly conditioned cuts and near-zero values
+    z_norm = LinearAlgebra.norm(z, Inf)
+    min_abs = max(1e-12, 1e-15 * z_norm) # TODO tune/option
+    for (i, z_i) in enumerate(z)
+        if abs(z_i) < min_abs
+            z[i] = 0
+        end
+    end
+    return iszero(z)
 end
 
 end

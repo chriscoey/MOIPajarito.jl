@@ -36,9 +36,9 @@ function add_subp_cuts(
 )
     # strengthened cut is (‖r‖, r)
     @views r = z[2:end]
-    u = s_vars[1]
-    @views w = s_vars[2:end]
-    expr = JuMP.@expression(opt.oa_model, LinearAlgebra.norm(r) * u + JuMP.dot(r, w))
+    z = vcat(LinearAlgebra.norm(r), r)
+    clean_array!(z) && return 0
+    expr = dot_expr(z, s_vars, opt)
     return add_cut(expr, opt)
 end
 
@@ -57,9 +57,8 @@ function add_sep_cuts(
     end
 
     # cut is (1, -ws / ‖ws‖)
-    u = s_vars[1]
-    @views w = s_vars[2:end]
-    d = length(w)
-    expr = JuMP.@expression(opt.oa_model, u - sum(ws[i] / ws_norm * w[i] for i in 1:d))
+    z = vcat(1, -inv(ws_norm) * ws)
+    clean_array!(z) && return 0
+    expr = dot_expr(z, s_vars, opt)
     return add_cut(expr, opt)
 end

@@ -267,9 +267,7 @@ function run_one_tree_method(opt::Optimizer)
 
     function heuristic_cb(cb)
         opt.num_heuristic_cbs += 1
-        if !opt.new_incumbent
-            return
-        end
+        opt.new_incumbent || return true
         cb_status =
             MOI.submit(opt.oa_model, MOI.HeuristicSolution(cb), opt.oa_vars, opt.incumbent)
         println("heuristic cb status was: ", cb_status)
@@ -317,30 +315,26 @@ function solve_relaxation(opt::Optimizer)
     JuMP.optimize!(opt.relax_model)
 
     relax_status = JuMP.termination_status(opt.relax_model)
-    if relax_status == MOI.OPTIMAL
+    if opt.verbose
+        println("continuous relaxation status is $relax_status")
+    end
+    if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
         opt.obj_bound = JuMP.dual_objective_value(opt.relax_model)
+    elseif relax_status in (MOI.DUAL_INFEASIBLE, MOI.ALMOST_DUAL_INFEASIBLE)
         if opt.verbose
-            println(
-                "continuous relaxation status is $relax_status " *
-                "with dual objective value $(opt.obj_bound)",
-            )
+            println("problem could be unbounded; Pajarito may fail to converge")
         end
-    elseif relax_status == MOI.DUAL_INFEASIBLE || relax_status == MOI.ALMOST_OPTIMAL
-        if opt.verbose
-            println("continuous relaxation status is $relax_status")
-        end
-    elseif relax_status == MOI.INFEASIBLE
+    elseif relax_status in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
         if opt.verbose
             println("infeasibility detected from continuous relaxation; terminating")
         end
-        opt.status = relax_status
+        opt.status = MOI.INFEASIBLE
         return true
     else
         @warn("continuous relaxation status $relax_status is not handled")
-        # opt.status = MOI.OTHER_ERROR
+        opt.status = MOI.OTHER_ERROR
         return false
     end
-    # @assert JuMP.has_duals(opt.relax_model)
     # TODO if optimal solution to conic relaxation is integral, don't need to do OA
 
     if iszero(opt.num_int_vars)
@@ -348,8 +342,8 @@ function solve_relaxation(opt::Optimizer)
         if opt.verbose
             println("problem is continuous; terminating without using OA solver")
         end
-        if relax_status == MOI.OPTIMAL
-            opt.status = relax_status
+        if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
+            opt.status = MOI.OPTIMAL
             opt.obj_value = JuMP.objective_value(opt.relax_model)
             opt.incumbent = JuMP.value.(opt.relax_vars)
         end
@@ -385,7 +379,7 @@ function solve_subproblem(opt::Optimizer)
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
-    if subp_status == MOI.OPTIMAL
+    if subp_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
         obj_val =
             JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
         if obj_val < opt.obj_value
@@ -398,7 +392,7 @@ function solve_subproblem(opt::Optimizer)
             opt.new_incumbent = true
         end
         return false
-    elseif subp_status == MOI.INFEASIBLE
+    elseif subp_status in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
         # NOTE: duals are rescaled before adding subproblem cuts
         return false
     end
@@ -608,16 +602,19 @@ function add_subp_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
     for (_, ci, s_vars, cone) in opt.oa_cones
         z = JuMP.dual(ci)
+
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
             continue # discard duals with small norm
         elseif z_norm > 1e12
             @warn("norm of dual is large ($z_norm)")
         end
-        if JuMP.termination_status(opt.subp_model) == MOI.INFEASIBLE
+        subp_status = JuMP.termination_status(opt.subp_model)
+        if subp_status in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
             # rescale dual rays
             z .*= inv(z_norm)
         end
+
         opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
     end
 
@@ -661,7 +658,7 @@ function update_incumbent_from_OA(opt::Optimizer)
         # update incumbent and objective value
         copyto!(opt.incumbent, sol)
         opt.obj_value = obj_val
-        # println("new incumbent")
+        println("new incumbent")
         opt.new_incumbent = true
     end
 end

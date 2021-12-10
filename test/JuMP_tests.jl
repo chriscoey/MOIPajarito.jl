@@ -28,7 +28,7 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,
-        # "time_limit" => 60.0,
+        "time_limit" => 60.0,
     )
     insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
     @testset "$inst" for inst in insts
@@ -304,10 +304,10 @@ end
 function _expdesign(opt)
     TOL = 1e-4
     # experiment design
-    V = [1 1 -0.5 -1 0; 1 -1 1 -0.5 0]
+    V = [1 1 -0.2 -0.5; 1 -1 0.5 -0.2]
     function setup_exp_design()
         m = JuMP.Model(opt)
-        JuMP.@variable(m, x[1:5], Int)
+        JuMP.@variable(m, x[1:4], Int)
         JuMP.@constraint(m, x .>= 0)
         JuMP.@constraint(m, sum(x) <= 8)
         Q = V * LinearAlgebra.diagm(x) * V'
@@ -330,7 +330,7 @@ function _expdesign(opt)
     @test isapprox(JuMP.objective_value(m), 1 / 4, atol = TOL)
     @test isapprox(JuMP.objective_bound(m), 1 / 4, atol = TOL)
     x_val = JuMP.value.(x)
-    @test isapprox(x_val, [4, 4, 0, 0, 0], atol = TOL)
+    @test isapprox(x_val, [4, 4, 0, 0], atol = TOL)
     @test isapprox(JuMP.value.(y[1]), JuMP.value.(y[2]), atol = TOL)
 
     # E-optimal
@@ -345,24 +345,30 @@ function _expdesign(opt)
     @test isapprox(JuMP.objective_value(m), 8, atol = TOL)
     @test isapprox(JuMP.objective_bound(m), 8, atol = TOL)
     x_val = JuMP.value.(x)
-    @test isapprox(x_val, [4, 4, 0, 0, 0], atol = TOL)
+    @test isapprox(x_val, [4, 4, 0, 0], atol = TOL)
 
     # D-optimal
     for use_logdet in (true, false)
+        opt_x = [4, 4, 0, 0]
+        opt_Q = LinearAlgebra.Symmetric(V * LinearAlgebra.Diagonal(opt_x) * V')
         (m, x, Q) = setup_exp_design()
         JuMP.@variable(m, y)
         JuMP.@objective(m, Max, y)
         Qvec = [Q[1, 1], Q[2, 1], Q[2, 2]]
         if use_logdet
             JuMP.@constraint(m, vcat(y, 1.0, Qvec) in MOI.LogDetConeTriangle(2))
+            opt_val = LinearAlgebra.logdet(opt_Q)
         else
             JuMP.@constraint(m, vcat(y, Qvec) in MOI.RootDetConeTriangle(2))
+            opt_val = sqrt(LinearAlgebra.det(opt_Q))
         end
         JuMP.optimize!(m)
         @test JuMP.termination_status(m) == MOI.OPTIMAL
         @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+        @test isapprox(JuMP.objective_value(m), opt_val, atol = TOL)
+        @test isapprox(JuMP.objective_bound(m), opt_val, atol = TOL)
         x_val = JuMP.value.(x)
-        @test isapprox(x_val, [4, 4, 0, 0, 0], atol = TOL)
+        @test isapprox(x_val, opt_x, atol = TOL)
     end
     return
 end
