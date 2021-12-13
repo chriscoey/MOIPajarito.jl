@@ -1,6 +1,6 @@
 # cut oracles for MathOptInterface cones
 
-module Cuts
+module Cones
 
 import LinearAlgebra
 import JuMP
@@ -11,17 +11,26 @@ const CR = JuMP.ConstraintRef
 
 import MOIPajarito: Optimizer
 
+abstract type ConeCache end
+
 include("secondordercone.jl")
-include("exponentialcone.jl")
-include("powercone.jl")
-include("positivesemidefiniteconetriangle.jl")
+# include("exponentialcone.jl")
+# include("powercone.jl")
+# include("positivesemidefiniteconetriangle.jl")
+
+# supported cones for outer approximation
+const OACone = Union{
+    MOI.SecondOrderCone,
+    # MOI.ExponentialCone,
+    # MOI.PowerCone{Float64},
+    # MOI.PositiveSemidefiniteConeTriangle,
+}
 
 # initial fixed cuts (default to none)
 # add_init_cuts(::Optimizer, ::Vector{VR}, ::AVS) = 0
 
 # strengthened subproblem dual cuts (default to no strengthening)
 # function add_subp_cuts(opt::Optimizer, z::Vector{Float64}, s_vars::Vector{VR}, ::AVS)
-#     # TODO MOI.Utilities.set_dot
 #     expr = JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
 #     return add_cut(expr, opt)
 # end

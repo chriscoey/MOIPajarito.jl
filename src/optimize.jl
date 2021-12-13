@@ -43,7 +43,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     c_int::Vector{Float64}
     A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
-    oa_cones::Vector{Tuple{CR, CR, Vector{VR}, AVS}}
+    oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache}}
 
     # modified throughout optimize and used after optimize
     status::MOI.TerminationStatusCode
@@ -499,7 +499,7 @@ function setup_models(opt::Optimizer)
     end
 
     # conic constraints
-    opt.oa_cones = Tuple{CR, CR, Vector{VR}, AVS}[]
+    opt.oa_cones = Tuple{CR, CR, Cones.ConeCache}[]
     opt.subp_cones = CR[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         # TODO should keep h_i and G_i separate for the individual cone constraints
@@ -517,7 +517,9 @@ function setup_models(opt::Optimizer)
             # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
             s_i = JuMP.@variable(oa, [1:length(idxs)])
             JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
-            push!(opt.oa_cones, (K_relax_i, K_subp_i, s_i, cone))
+
+            cc = Cones.create_cache(s_i, cone)
+            push!(opt.oa_cones, (K_relax_i, K_subp_i, cc))
         end
     end
 
@@ -558,8 +560,8 @@ end
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (_, _, s_vars, cone) in opt.oa_cones
-        opt.num_cuts += Cuts.add_init_cuts(opt, s_vars, cone)
+    for (_, _, cc) in opt.oa_cones
+        opt.num_cuts += Cones.add_init_cuts(opt, cc)
     end
     return nothing
 end
@@ -571,7 +573,7 @@ function add_relax_cuts(opt::Optimizer)
     end
 
     num_cuts_before = opt.num_cuts
-    for (ci, _, s_vars, cone) in opt.oa_cones
+    for (ci, _, cc) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -579,7 +581,7 @@ function add_relax_cuts(opt::Optimizer)
         elseif z_norm > 1e12
             @warn("norm of dual is large ($z_norm)")
         end
-        opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
+        opt.num_cuts += Cones.add_subp_cuts(opt, cc)
     end
 
     if opt.num_cuts <= num_cuts_before
@@ -615,7 +617,7 @@ function add_subp_cuts(opt::Optimizer)
             z .*= inv(z_norm)
         end
 
-        opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
+        opt.num_cuts += Cones.add_subp_cuts(opt, z, s_vars, cone)
     end
 
     if opt.num_cuts <= num_cuts_before
@@ -633,11 +635,11 @@ function add_sep_cuts(opt::Optimizer)
     # TODO can't get the values after added a cut, due to "optimize not called"
     ss = [get_value(s_vars, opt.lazy_cb) for (_, _, s_vars, _) in opt.oa_cones]
     for (s, (_, _, s_vars, cone)) in zip(ss, opt.oa_cones)
-        opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
+        opt.num_cuts += Cones.add_sep_cuts(opt, s, s_vars, cone)
     end
     # for (_, _, s_vars, cone) in opt.oa_cones
     #     s = get_value(s_vars, opt.lazy_cb)
-    #     opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
+    #     opt.num_cuts += Cones.add_sep_cuts(opt, s, s_vars, cone)
     # end
 
     if opt.num_cuts <= num_cuts_before
