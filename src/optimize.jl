@@ -62,7 +62,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         verbose::Bool = true,
         tol_feas::Float64 = 1e-7,
         tol_rel_gap::Float64 = 1e-5,
-        tol_abs_gap::Float64 = 1e-7,
+        tol_abs_gap::Float64 = 1e-4,
         time_limit::Float64 = 1e6,
         iteration_limit::Int = 1000,
         use_iterative_method::Union{Nothing, Bool} = nothing,

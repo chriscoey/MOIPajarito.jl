@@ -24,7 +24,8 @@ hypatia = MOI.OptimizerWithAttributes(
     "tol_feas" => 1e-8,
     "tol_rel_opt" => 1e-8,
     "tol_abs_opt" => 1e-8,
-    "tol_slow" => 1e-2,
+    "tol_illposed" => 1e-7,
+    "tol_slow" => 2e-2,
 )
 
 println("starting Pajarito tests")

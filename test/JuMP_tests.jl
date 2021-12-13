@@ -316,7 +316,7 @@ function _expdesign(opt)
 
     # A-optimal
     (m, x, Q) = setup_exp_design()
-    JuMP.@variable(m, y[1:2] >= 0)
+    JuMP.@variable(m, y[1:2])
     JuMP.@objective(m, Min, sum(y))
     for i in 1:2
         ei = zeros(2)
