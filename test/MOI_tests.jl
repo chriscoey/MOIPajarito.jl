@@ -36,8 +36,8 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
         model,
         MOI.Test.Config(
             Float64,
-            atol = 1e-4,
-            rtol = 1e-4,
+            atol = 2e-4,
+            rtol = 2e-4,
             exclude = Any[
                 MOI.ConstraintDual,
                 MOI.ConstraintBasisStatus,
