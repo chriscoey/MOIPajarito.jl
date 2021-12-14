@@ -13,8 +13,8 @@ oa_solver = MOI.OptimizerWithAttributes(
     "mip_gap" => 1e-10,
 )
 
-import ECOS
-ecos = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
+# import ECOS
+# ecos = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 
 import Hypatia
 hypatia = MOI.OptimizerWithAttributes(

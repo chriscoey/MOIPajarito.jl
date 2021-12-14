@@ -9,6 +9,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     time_limit::Float64
     iteration_limit::Int
     use_iterative_method::Union{Nothing, Bool}
+    use_extended_form::Bool
     oa_solver::Union{Nothing, MOI.OptimizerWithAttributes}
     conic_solver::Union{Nothing, MOI.OptimizerWithAttributes}
 
@@ -16,11 +17,8 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_opt::Union{Nothing, MOI.AbstractOptimizer}
     conic_opt::Union{Nothing, MOI.AbstractOptimizer}
 
-    # used by MOI wrapper
-    obj_sense::MOI.OptimizationSense
-    # zeros_idxs::Vector{UnitRange{Int}} # TODO needed?
-
     # problem data
+    obj_sense::MOI.OptimizationSense
     obj_offset::Float64
     c::Vector{Float64}
     A::SparseArrays.SparseMatrixCSC{Float64, Int}
@@ -43,7 +41,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     c_int::Vector{Float64}
     A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
-    oa_cones::Vector{Tuple{CR, CR, Vector{VR}, AVS}}
+    oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache}}
 
     # modified throughout optimize and used after optimize
     status::MOI.TerminationStatusCode
@@ -66,6 +64,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         time_limit::Float64 = 1e6,
         iteration_limit::Int = 1000,
         use_iterative_method::Union{Nothing, Bool} = nothing,
+        use_extended_form::Bool = true,
         oa_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
         conic_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
     )
@@ -77,6 +76,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.time_limit = time_limit
         opt.iteration_limit = iteration_limit
         opt.use_iterative_method = use_iterative_method
+        opt.use_extended_form = use_extended_form
         opt.oa_solver = oa_solver
         opt.conic_solver = conic_solver
         opt.oa_opt = nothing
@@ -358,7 +358,7 @@ function solve_subproblem(opt::Optimizer)
     x_int = opt.oa_vars[1:(opt.num_int_vars)]
     int_sol = get_value.(x_int, opt.lazy_cb)
 
-    # TODO want JuMP MultirowChange, see https://github.com/jump-dev/JuMP.jl/issues/1183
+    # TODO maybe also modify the objective constant using dot(opt.c_int, int_sol), could be nonzero
     moi_model = JuMP.backend(opt.subp_model)
     if !isnothing(opt.subp_eq)
         new_b = opt.b - opt.A_int * int_sol
@@ -499,7 +499,7 @@ function setup_models(opt::Optimizer)
     end
 
     # conic constraints
-    opt.oa_cones = Tuple{CR, CR, Vector{VR}, AVS}[]
+    opt.oa_cones = Tuple{CR, CR, Cones.ConeCache}[]
     opt.subp_cones = CR[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         # TODO should keep h_i and G_i separate for the individual cone constraints
@@ -517,7 +517,11 @@ function setup_models(opt::Optimizer)
             # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
             s_i = JuMP.@variable(oa, [1:length(idxs)])
             JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
-            push!(opt.oa_cones, (K_relax_i, K_subp_i, s_i, cone))
+
+            cc = Cones.create_cache(s_i, cone, opt.use_extended_form)
+            Cones.setup_auxiliary(cc, oa)
+
+            push!(opt.oa_cones, (K_relax_i, K_subp_i, cc))
         end
     end
 
@@ -558,8 +562,8 @@ end
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (_, _, s_vars, cone) in opt.oa_cones
-        opt.num_cuts += Cuts.add_init_cuts(opt, s_vars, cone)
+    for (_, _, cc) in opt.oa_cones
+        opt.num_cuts += Cones.add_init_cuts(cc, opt.oa_model)
     end
     return nothing
 end
@@ -571,7 +575,7 @@ function add_relax_cuts(opt::Optimizer)
     end
 
     num_cuts_before = opt.num_cuts
-    for (ci, _, s_vars, cone) in opt.oa_cones
+    for (ci, _, cc) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -579,7 +583,9 @@ function add_relax_cuts(opt::Optimizer)
         elseif z_norm > 1e12
             @warn("norm of dual is large ($z_norm)")
         end
-        opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
+
+        cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
+        add_cuts(cuts, opt)
     end
 
     if opt.num_cuts <= num_cuts_before
@@ -600,9 +606,8 @@ function add_subp_cuts(opt::Optimizer)
     end
 
     num_cuts_before = opt.num_cuts
-    for (_, ci, s_vars, cone) in opt.oa_cones
+    for (_, ci, cc) in opt.oa_cones
         z = JuMP.dual(ci)
-
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
             continue # discard duals with small norm
@@ -615,7 +620,8 @@ function add_subp_cuts(opt::Optimizer)
             z .*= inv(z_norm)
         end
 
-        opt.num_cuts += Cuts.add_subp_cuts(opt, z, s_vars, cone)
+        cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
+        add_cuts(cuts, opt)
     end
 
     if opt.num_cuts <= num_cuts_before
@@ -630,15 +636,13 @@ end
 # separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    # TODO can't get the values after added a cut, due to "optimize not called"
-    ss = [get_value(s_vars, opt.lazy_cb) for (_, _, s_vars, _) in opt.oa_cones]
-    for (s, (_, _, s_vars, cone)) in zip(ss, opt.oa_cones)
-        opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
+    for (_, _, cc) in opt.oa_cones
+        Cones.load_s(cc, opt.lazy_cb)
     end
-    # for (_, _, s_vars, cone) in opt.oa_cones
-    #     s = get_value(s_vars, opt.lazy_cb)
-    #     opt.num_cuts += Cuts.add_sep_cuts(opt, s, s_vars, cone)
-    # end
+    for (_, _, cc) in opt.oa_cones
+        cuts = Cones.get_sep_cuts(cc, opt.oa_model)
+        add_cuts(cuts, opt)
+    end
 
     if opt.num_cuts <= num_cuts_before
         if opt.verbose
@@ -661,4 +665,29 @@ function update_incumbent_from_OA(opt::Optimizer)
         println("new incumbent")
         opt.new_incumbent = true
     end
+end
+
+function add_cuts(cuts::Vector{JuMP.AffExpr}, opt::Optimizer)
+    for cut in cuts
+        opt.num_cuts += add_cut(cut, opt)
+    end
+end
+
+function add_cut(cut::JuMP.AffExpr, opt::Optimizer)
+    return _add_cut(cut, opt.oa_model, opt.tol_feas, opt.lazy_cb)
+end
+
+function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, ::Float64, ::Nothing)
+    JuMP.@constraint(model, cut >= 0)
+    return 1
+end
+
+function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, tol_feas::Float64, cb)
+    # only add cut if violated (per JuMP documentation)
+    if JuMP.callback_value(cb, cut) < -tol_feas
+        con = JuMP.@build_constraint(cut >= 0)
+        MOI.submit(model, MOI.LazyConstraint(cb), con)
+        return 1
+    end
+    return 0
 end

@@ -64,7 +64,7 @@ end
 function MOI.supports_constraint(
     opt::Optimizer,
     F::Type{<:Union{VV, VAF}},
-    S::Type{<:Union{MOI.Zeros, MOI.Nonnegatives, OACone}},
+    S::Type{<:Union{MOI.Zeros, MOI.Nonnegatives, Cones.OACone}},
 )
     return MOI.supports_constraint(get_conic_opt(opt), F, S)
 end
