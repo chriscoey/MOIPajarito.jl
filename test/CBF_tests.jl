@@ -10,9 +10,9 @@ const MOIFF = MOI.FileFormats
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    # @testset "iterative method" begin
-    #     run_cbf_tests(true, oa_solver, conic_solver)
-    # end
+    @testset "iterative method" begin
+        run_cbf_tests(true, oa_solver, conic_solver)
+    end
     @testset "one tree method" begin
         run_cbf_tests(false, oa_solver, conic_solver)
     end
@@ -27,19 +27,14 @@ function run_cbf_tests(use_iter::Bool, oa_solver, conic_solver)
         ),
         Float64,
     )
-    # MOI.set(model, MOI.Silent(), true)
+    MOI.set(model, MOI.Silent(), true)
     MOI.set(model, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
     MOI.set(model, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("conic_solver"), conic_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("time_limit"), 30)
     MOI.set(model, MOI.RawOptimizerAttribute("iteration_limit"), 100)
 
-    insts = [
-        # "sssd_strong_15_4",
-        # "exp_gatesizing",
-        "exp_ising",
-        # "sdp_cardls",
-    ]
+    insts = ["sssd_strong_15_4", "exp_gatesizing", "exp_ising", "sdp_cardls"]
     folder = joinpath(@__DIR__, "CBF")
 
     @testset "$inst" for inst in insts

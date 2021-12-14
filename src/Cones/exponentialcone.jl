@@ -25,8 +25,8 @@ end
 function add_init_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
     (u, v, w) = cache.s_oa
     # add variable bounds and some separation cuts from linearizations at p = -1
-    JuMP.set_lower_bound(u, 0)
     JuMP.set_lower_bound(v, 0)
+    JuMP.set_lower_bound(w, 0)
     r_lin = [1e-3, 1e0, 1e2]
     JuMP.@constraint(oa_model, [r in r_lin], -u - (log(r) + 1) * v + r * w >= 0)
     return 2 + length(r_lin)
