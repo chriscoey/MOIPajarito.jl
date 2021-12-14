@@ -20,14 +20,14 @@ abstract type ConeCache end
 include("secondordercone.jl")
 include("exponentialcone.jl")
 include("powercone.jl")
-# include("positivesemidefiniteconetriangle.jl")
+include("positivesemidefiniteconetriangle.jl")
 
 # supported cones for outer approximation
 const OACone = Union{
     MOI.SecondOrderCone,
     MOI.ExponentialCone,
     MOI.PowerCone{Float64},
-    # MOI.PositiveSemidefiniteConeTriangle,
+    MOI.PositiveSemidefiniteConeTriangle,
 }
 
 setup_auxiliary(::ConeCache, ::JuMP.Model) = nothing

@@ -17,11 +17,8 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_opt::Union{Nothing, MOI.AbstractOptimizer}
     conic_opt::Union{Nothing, MOI.AbstractOptimizer}
 
-    # used by MOI wrapper
-    obj_sense::MOI.OptimizationSense
-    # zeros_idxs::Vector{UnitRange{Int}} # TODO needed?
-
     # problem data
+    obj_sense::MOI.OptimizationSense
     obj_offset::Float64
     c::Vector{Float64}
     A::SparseArrays.SparseMatrixCSC{Float64, Int}

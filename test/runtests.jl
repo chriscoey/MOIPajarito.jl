@@ -13,8 +13,8 @@ oa_solver = MOI.OptimizerWithAttributes(
     "mip_gap" => 1e-10,
 )
 
-import ECOS
-ecos = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
+# import ECOS
+# ecos = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 
 import Hypatia
 hypatia = MOI.OptimizerWithAttributes(
@@ -32,10 +32,10 @@ println("starting Pajarito tests")
 Test.@testset "Pajarito tests" begin
     println("starting MOI tests")
     include("MOI_tests.jl")
-    # Test.@testset "MOI tests" begin
-    #     # TestMOI.runtests(oa_solver, ecos)
-    #     TestMOI.runtests(oa_solver, hypatia)
-    # end
+    Test.@testset "MOI tests" begin
+        # TestMOI.runtests(oa_solver, ecos)
+        TestMOI.runtests(oa_solver, hypatia)
+    end
 
     println("starting JuMP tests")
     include("JuMP_tests.jl")
