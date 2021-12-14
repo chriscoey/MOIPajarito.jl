@@ -16,8 +16,8 @@ const AVS = MOI.AbstractVectorSet
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 
-include("optimize.jl")
 include("Cones/Cones.jl")
+include("optimize.jl")
 include("MOI_wrapper.jl")
 
 end

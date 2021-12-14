@@ -9,8 +9,6 @@ const AVS = MOI.AbstractVectorSet
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 
-import MOIPajarito: Optimizer
-
 abstract type ConeCache end
 
 include("secondordercone.jl")
@@ -26,43 +24,12 @@ const OACone = Union{
     # MOI.PositiveSemidefiniteConeTriangle,
 }
 
-# initial fixed cuts (default to none)
-# add_init_cuts(::Optimizer, ::Vector{VR}, ::AVS) = 0
-
-# strengthened subproblem dual cuts (default to no strengthening)
-# function add_subp_cuts(opt::Optimizer, z::Vector{Float64}, s_vars::Vector{VR}, ::AVS)
-#     expr = JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
-#     return add_cut(expr, opt)
-# end
-
-# separation cuts (default to none)
-# add_sep_cuts(::Optimizer, ::Vector{Float64}, ::Vector{VR}, ::AVS) = 0
-
 function dot_expr(
-    z::LinearAlgebra.AbstractVecOrMat{Float64},
-    s_vars::AbstractVecOrMat{VR},
-    opt::Optimizer,
+    z::AbstractVecOrMat{Float64},
+    vars::AbstractVecOrMat{VR},
+    oa_model::JuMP.Model,
 )
-    return JuMP.@expression(opt.oa_model, JuMP.dot(z, s_vars))
-end
-
-function add_cut(expr::JuMP.AffExpr, opt::Optimizer)
-    return _add_cut(expr, opt.oa_model, opt.tol_feas, opt.lazy_cb)
-end
-
-function _add_cut(expr::JuMP.AffExpr, model::JuMP.Model, ::Float64, ::Nothing)
-    JuMP.@constraint(model, expr >= 0)
-    return 1
-end
-
-function _add_cut(expr::JuMP.AffExpr, model::JuMP.Model, tol_feas::Float64, cb)
-    # only add cut if violated (per JuMP documentation)
-    if JuMP.callback_value(cb, expr) < -tol_feas
-        con = JuMP.@build_constraint(expr >= 0)
-        MOI.submit(model, MOI.LazyConstraint(cb), con)
-        return 1
-    end
-    return 0
+    return JuMP.@expression(oa_model, JuMP.dot(z, vars))
 end
 
 function clean_array!(z::AbstractArray)
@@ -75,6 +42,15 @@ function clean_array!(z::AbstractArray)
         end
     end
     return iszero(z)
+end
+
+function load_s(cache::ConeCache, ::Nothing)
+    cache.s = JuMP.value.(cache.s_oa)
+    return
+end
+
+function load_s(cache::ConeCache, cb::Any)
+    cache.s = JuMP.callback_value.(cb, cache.s_oa)
 end
 
 end

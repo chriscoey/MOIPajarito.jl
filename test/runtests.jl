@@ -32,10 +32,10 @@ println("starting Pajarito tests")
 Test.@testset "Pajarito tests" begin
     println("starting MOI tests")
     include("MOI_tests.jl")
-    Test.@testset "MOI tests" begin
-        # TestMOI.runtests(oa_solver, ecos)
-        TestMOI.runtests(oa_solver, hypatia)
-    end
+    # Test.@testset "MOI tests" begin
+    #     # TestMOI.runtests(oa_solver, ecos)
+    #     TestMOI.runtests(oa_solver, hypatia)
+    # end
 
     println("starting JuMP tests")
     include("JuMP_tests.jl")

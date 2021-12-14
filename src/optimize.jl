@@ -358,7 +358,7 @@ function solve_subproblem(opt::Optimizer)
     x_int = opt.oa_vars[1:(opt.num_int_vars)]
     int_sol = get_value.(x_int, opt.lazy_cb)
 
-    # TODO want JuMP MultirowChange, see https://github.com/jump-dev/JuMP.jl/issues/1183
+    # TODO maybe also modify the objective constant using dot(opt.c_int, int_sol), could be nonzero
     moi_model = JuMP.backend(opt.subp_model)
     if !isnothing(opt.subp_eq)
         new_b = opt.b - opt.A_int * int_sol
@@ -561,7 +561,7 @@ end
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
     for (_, _, cc) in opt.oa_cones
-        opt.num_cuts += Cones.add_init_cuts(opt, cc)
+        opt.num_cuts += Cones.add_init_cuts(cc, opt.oa_model)
     end
     return nothing
 end
@@ -581,7 +581,9 @@ function add_relax_cuts(opt::Optimizer)
         elseif z_norm > 1e12
             @warn("norm of dual is large ($z_norm)")
         end
-        opt.num_cuts += Cones.add_subp_cuts(opt, cc)
+
+        cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
+        add_cuts(cuts, opt)
     end
 
     if opt.num_cuts <= num_cuts_before
@@ -602,9 +604,8 @@ function add_subp_cuts(opt::Optimizer)
     end
 
     num_cuts_before = opt.num_cuts
-    for (_, ci, s_vars, cone) in opt.oa_cones
+    for (_, ci, cc) in opt.oa_cones
         z = JuMP.dual(ci)
-
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
             continue # discard duals with small norm
@@ -617,7 +618,8 @@ function add_subp_cuts(opt::Optimizer)
             z .*= inv(z_norm)
         end
 
-        opt.num_cuts += Cones.add_subp_cuts(opt, z, s_vars, cone)
+        cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
+        add_cuts(cuts, opt)
     end
 
     if opt.num_cuts <= num_cuts_before
@@ -633,14 +635,17 @@ end
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
     # TODO can't get the values after added a cut, due to "optimize not called"
-    ss = [get_value(s_vars, opt.lazy_cb) for (_, _, s_vars, _) in opt.oa_cones]
-    for (s, (_, _, s_vars, cone)) in zip(ss, opt.oa_cones)
-        opt.num_cuts += Cones.add_sep_cuts(opt, s, s_vars, cone)
+    # TODO redo this
+    for (_, _, cc) in opt.oa_cones
+        Cones.load_s(cc, opt.lazy_cb)
     end
-    # for (_, _, s_vars, cone) in opt.oa_cones
-    #     s = get_value(s_vars, opt.lazy_cb)
-    #     opt.num_cuts += Cones.add_sep_cuts(opt, s, s_vars, cone)
-    # end
+    # ss = [get_value(cc.s_oa, opt.lazy_cb) for (_, _, cc) in opt.oa_cones]
+    # for (s, (_, _, cc)) in zip(ss, opt.oa_cones)
+    #     cuts = Cones.get_sep_cuts(s, cc, opt.oa_model)
+    for (_, _, cc) in opt.oa_cones
+        cuts = Cones.get_sep_cuts(s, cc, opt.oa_model)
+        add_cuts(cuts, opt)
+    end
 
     if opt.num_cuts <= num_cuts_before
         if opt.verbose
@@ -663,4 +668,29 @@ function update_incumbent_from_OA(opt::Optimizer)
         println("new incumbent")
         opt.new_incumbent = true
     end
+end
+
+function add_cuts(cuts::Vector{JuMP.AffExpr}, opt::Optimizer)
+    for cut in cuts
+        opt.num_cuts += add_cut(cut, opt)
+    end
+end
+
+function add_cut(cut::JuMP.AffExpr, opt::Optimizer)
+    return _add_cut(cut, opt.oa_model, opt.tol_feas, opt.lazy_cb)
+end
+
+function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, ::Float64, ::Nothing)
+    JuMP.@constraint(model, cut >= 0)
+    return 1
+end
+
+function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, tol_feas::Float64, cb)
+    # only add cut if violated (per JuMP documentation)
+    if JuMP.callback_value(cb, cut) < -tol_feas
+        con = JuMP.@build_constraint(cut >= 0)
+        MOI.submit(model, MOI.LazyConstraint(cb), con)
+        return 1
+    end
+    return 0
 end
