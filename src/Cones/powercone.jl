@@ -7,57 +7,63 @@ dual cone
 equivalently (q > 0, p ≥ t / (1-t) * q * |(1-t) * r / q|^(1/t))
 =#
 
-function add_init_cuts(opt::Optimizer, s_vars::Vector{VR}, cone::MOI.PowerCone)
-    @assert length(s_vars) == 3
-    (u, v, w) = s_vars
-    t = cone.exponent
+mutable struct PowerConeCache <: ConeCache
+    cone::MOI.PowerCone
+    t::Real
+    s_oa::Vector{VR}
+    s::Vector{Float64}
+    PowerConeCache() = new()
+end
+
+function create_cache(s_oa::Vector{VR}, cone::MOI.PowerCone, ::Bool)
+    @assert length(s_oa) == 3
+    cache = PowerConeCache()
+    cache.cone = cone
+    cache.t = cone.exponent
+    cache.s_oa = s_oa
+    return cache
+end
+
+function add_init_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
+    (u, v, w) = cache.s_oa
+    t = cache.t
     # add variable bounds and cuts (t, 1-t, ±1)
-    JuMP.@constraints(opt.oa_model, begin
-        u >= 0
-        v >= 0
+    JuMP.set_lower_bound(u, 0)
+    JuMP.set_lower_bound(v, 0)
+    JuMP.@constraints(oa_model, begin
         t * u + (1 - t) * v + w >= 0
         t * u + (1 - t) * v - w >= 0
     end)
     return 4
 end
 
-function add_subp_cuts(
-    opt::Optimizer,
-    z::Vector{Float64},
-    s_vars::Vector{VR},
-    cone::MOI.PowerCone,
-)
+function get_subp_cuts(z::Vector{Float64}, cache::PowerConeCache, oa_model::JuMP.Model)
     p = z[1]
     q = z[2]
     if min(p, q) <= 0
         # z ∉ K
         @warn("dual vector is not in the dual cone")
-        return 0
+        return JuMP.AffExpr[]
     end
 
     # strengthened cut is (p, q, sign(r) * (p/t)^t * (q/(1-t))^(1-t))
-    t = cone.exponent
+    t = cache.t
     r = sign(z[3]) * (p / t)^t * (q / (1 - t))^(1 - t)
-    (u, v, w) = s_vars
-    expr = JuMP.@expression(opt.oa_model, p * u + q * v + r * w)
-    return add_cut(expr, opt)
+    (u, v, w) = cache.s_oa
+    cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
+    return [cut]
 end
 
-function add_sep_cuts(
-    opt::Optimizer,
-    s::Vector{Float64},
-    s_vars::Vector{VR},
-    cone::MOI.PowerCone,
-)
-    (us, vs, ws) = s
-    if min(us, vs) <= -opt.tol_feas
+function get_sep_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
+    (us, vs, ws) = cache.s
+    if min(us, vs) <= -1e-7
         error("power cone point violates initial cuts")
     end
 
     # check s ∉ K
-    t = cone.exponent
-    if us >= 0 && vs >= 0 && (us^t * vs^(1 - t) - abs(ws)) > -opt.tol_feas
-        return 0
+    t = cache.t
+    if us >= 0 && vs >= 0 && (us^t * vs^(1 - t) - abs(ws)) > -1e-7
+        return JuMP.AffExpr[]
     end
 
     # gradient cut is (t * (us/vs)^(t-1), (1-t) * (us/vs)^t, -sign(ws))
@@ -67,6 +73,6 @@ function add_sep_cuts(
     (u, v, w) = s_vars
     p = t * (us / vs)^(t - 1)
     q = (1 - t) * (us / vs)^t
-    expr = JuMP.@expression(opt.oa_model, p * u + q * v - sign(ws) * w)
-    return add_cut(expr, opt)
+    cut = JuMP.@expression(oa_model, p * u + q * v - sign(ws) * w)
+    return [cut]
 end

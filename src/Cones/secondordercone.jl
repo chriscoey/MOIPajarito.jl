@@ -9,21 +9,14 @@ linear and 3-dim rotated second order cone constraints
 
 mutable struct SecondOrderConeCache{E <: Extender} <: ConeCache
     cone::MOI.SecondOrderCone
-    oa_model::JuMP.Model
     s_oa::Vector{VR}
     s::Vector{Float64}
-    z::Vector{Float64}
     d::Int
     ϕ::Vector{VR}
     SecondOrderConeCache{E}() where {E <: Extender} = new{E}()
 end
 
-function create_cache(
-    s_oa::Vector{VR},
-    oa_model::JuMP.Model,
-    cone::MOI.SecondOrderCone,
-    extend::Bool,
-    )
+function create_cache(s_oa::Vector{VR}, cone::MOI.SecondOrderCone, extend::Bool)
     dim = MOI.dimension(cone)
     @assert dim == length(s_oa)
     E = extender(extend)
@@ -31,11 +24,14 @@ function create_cache(
     cache.cone = cone
     cache.s_oa = s_oa
     cache.d = dim - 1
-    setup_auxiliary(cache, oa_model)
     return cache
 end
 
-function get_subp_cuts(z::Vector{Float64}, cache::SecondOrderConeCache, oa_model::JuMP.Model)
+function get_subp_cuts(
+    z::Vector{Float64},
+    cache::SecondOrderConeCache,
+    oa_model::JuMP.Model,
+)
     return _get_cuts(z[2:end], cache, oa_model)
 end
 
@@ -69,10 +65,12 @@ function add_init_cuts(cache::SecondOrderConeCache{Unextended}, oa_model::JuMP.M
     return 1 + 2d
 end
 
-function _get_cuts(r::Vector{Float64}, cache::SecondOrderConeCache{Unextended}, oa_model::JuMP.Model)
+function _get_cuts(
+    r::Vector{Float64},
+    cache::SecondOrderConeCache{Unextended},
+    oa_model::JuMP.Model,
+)
     # strengthened cut is (‖r‖, r)
-    # @views r = cache.z[2:end]
-    # @views r = z[2:end]
     clean_array!(r) && return JuMP.AffExpr[]
     p = LinearAlgebra.norm(r)
     u = cache.s_oa[1]
@@ -84,7 +82,7 @@ end
 # extended formulation
 
 function setup_auxiliary(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
-    cache.ϕ = JuMP.@variable(oa_model, [1:cache.d], lower_bound = 0)
+    cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
     u = cache.s_oa[1]
     JuMP.@constraint(oa_model, u ≥ 2 * sum(cache.ϕ))
     return
@@ -105,14 +103,18 @@ function add_init_cuts(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Mod
     return 1 + 2d
 end
 
-function _get_cuts(r::Vector{Float64}, cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
+function _get_cuts(
+    r::Vector{Float64},
+    cache::SecondOrderConeCache{Extended},
+    oa_model::JuMP.Model,
+)
     clean_array!(r) && return JuMP.AffExpr[]
     p = LinearAlgebra.norm(r)
     u = cache.s_oa[1]
     @views w = cache.s_oa[2:end]
     ϕ = cache.ϕ
     cuts = JuMP.AffExpr[]
-    for i in 1:cache.d
+    for i in 1:(cache.d)
         r_i = r[i]
         iszero(r_i) && continue
         # strengthened disaggregated cut on (u, ϕᵢ, wᵢ) is (rᵢ² / 2‖r‖, ‖r‖, rᵢ)

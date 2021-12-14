@@ -18,15 +18,15 @@ extender(extend::Bool) = (extend ? Extended : Unextended)
 abstract type ConeCache end
 
 include("secondordercone.jl")
-# include("exponentialcone.jl")
-# include("powercone.jl")
+include("exponentialcone.jl")
+include("powercone.jl")
 # include("positivesemidefiniteconetriangle.jl")
 
 # supported cones for outer approximation
 const OACone = Union{
     MOI.SecondOrderCone,
-    # MOI.ExponentialCone,
-    # MOI.PowerCone{Float64},
+    MOI.ExponentialCone,
+    MOI.PowerCone{Float64},
     # MOI.PositiveSemidefiniteConeTriangle,
 }
 
@@ -58,7 +58,7 @@ function load_s(cache::ConeCache, ::Nothing)
 end
 
 function load_s(cache::ConeCache, cb::Any)
-    cache.s = JuMP.callback_value.(cb, cache.s_oa)
+    return cache.s = JuMP.callback_value.(cb, cache.s_oa)
 end
 
 end

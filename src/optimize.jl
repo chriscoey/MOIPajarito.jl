@@ -9,6 +9,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     time_limit::Float64
     iteration_limit::Int
     use_iterative_method::Union{Nothing, Bool}
+    use_extended_form::Bool
     oa_solver::Union{Nothing, MOI.OptimizerWithAttributes}
     conic_solver::Union{Nothing, MOI.OptimizerWithAttributes}
 
@@ -66,6 +67,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         time_limit::Float64 = 1e6,
         iteration_limit::Int = 1000,
         use_iterative_method::Union{Nothing, Bool} = nothing,
+        use_extended_form::Bool = true,
         oa_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
         conic_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
     )
@@ -77,6 +79,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.time_limit = time_limit
         opt.iteration_limit = iteration_limit
         opt.use_iterative_method = use_iterative_method
+        opt.use_extended_form = use_extended_form
         opt.oa_solver = oa_solver
         opt.conic_solver = conic_solver
         opt.oa_opt = nothing
@@ -518,8 +521,9 @@ function setup_models(opt::Optimizer)
             s_i = JuMP.@variable(oa, [1:length(idxs)])
             JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
 
-            cc = Cones.create_cache(s_i, oa, cone, true) # TODO option for extending
-            # cc = Cones.create_cache(s_i, oa, cone, false) # TODO option for extending
+            cc = Cones.create_cache(s_i, cone, opt.use_extended_form)
+            Cones.setup_auxiliary(cc, oa)
+
             push!(opt.oa_cones, (K_relax_i, K_subp_i, cc))
         end
     end
