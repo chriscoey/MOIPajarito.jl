@@ -9,6 +9,12 @@ const AVS = MOI.AbstractVectorSet
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 
+abstract type Extender end
+struct Unextended <: Extender end
+struct Extended <: Extender end
+
+extender(extend::Bool) = (extend ? Extended : Unextended)
+
 abstract type ConeCache end
 
 include("secondordercone.jl")
@@ -23,6 +29,8 @@ const OACone = Union{
     # MOI.PowerCone{Float64},
     # MOI.PositiveSemidefiniteConeTriangle,
 }
+
+setup_auxiliary(::ConeCache, ::JuMP.Model) = nothing
 
 function dot_expr(
     z::AbstractVecOrMat{Float64},

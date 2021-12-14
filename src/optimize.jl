@@ -518,7 +518,8 @@ function setup_models(opt::Optimizer)
             s_i = JuMP.@variable(oa, [1:length(idxs)])
             JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
 
-            cc = Cones.create_cache(s_i, cone)
+            cc = Cones.create_cache(s_i, oa, cone, true) # TODO option for extending
+            # cc = Cones.create_cache(s_i, oa, cone, false) # TODO option for extending
             push!(opt.oa_cones, (K_relax_i, K_subp_i, cc))
         end
     end
@@ -634,16 +635,11 @@ end
 # separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    # TODO can't get the values after added a cut, due to "optimize not called"
-    # TODO redo this
     for (_, _, cc) in opt.oa_cones
         Cones.load_s(cc, opt.lazy_cb)
     end
-    # ss = [get_value(cc.s_oa, opt.lazy_cb) for (_, _, cc) in opt.oa_cones]
-    # for (s, (_, _, cc)) in zip(ss, opt.oa_cones)
-    #     cuts = Cones.get_sep_cuts(s, cc, opt.oa_model)
     for (_, _, cc) in opt.oa_cones
-        cuts = Cones.get_sep_cuts(s, cc, opt.oa_model)
+        cuts = Cones.get_sep_cuts(cc, opt.oa_model)
         add_cuts(cuts, opt)
     end
 
