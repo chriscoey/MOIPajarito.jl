@@ -165,6 +165,12 @@ function run_iterative_method(opt::Optimizer)
         end
         opt.status = oa_status
         return true
+    elseif oa_status == MOI.TIME_LIMIT
+        if opt.verbose
+            println("OA solver timed out")
+        end
+        opt.status = oa_status
+        return true
     elseif oa_status != MOI.OPTIMAL
         @warn("OA solver status $oa_status is not handled")
         opt.status = MOI.OTHER_ERROR
@@ -285,8 +291,16 @@ function run_one_tree_method(opt::Optimizer)
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
         opt.obj_bound = JuMP.objective_bound(opt.oa_model)
-    else
+    elseif oa_status == MOI.INFEASIBLE
         opt.status = oa_status
+    elseif oa_status == MOI.TIME_LIMIT
+        if opt.verbose
+            println("OA solver timed out")
+        end
+        opt.status = oa_status
+    else
+        @warn("OA solver status $oa_status is not handled")
+        opt.status = MOI.OTHER_ERROR
     end
 
     return
@@ -301,7 +315,9 @@ function check_set_time_limit(opt::Optimizer, model::JuMP.Model)
         opt.status = MOI.TIME_LIMIT
         return true
     end
-    JuMP.set_time_limit_sec(model, time_left)
+    if MOI.supports(JuMP.backend(model), MOI.TimeLimitSec())
+        JuMP.set_time_limit_sec(model, time_left)
+    end
     return false
 end
 
@@ -309,9 +325,8 @@ function solve_relaxation(opt::Optimizer)
     if opt.verbose
         println("solving continuous relaxation")
     end
-    # TODO ECOS errors:
-    # time_finish = check_set_time_limit(opt, opt.relax_model)
-    # time_finish && return true
+    time_finish = check_set_time_limit(opt, opt.relax_model)
+    time_finish && return true
     JuMP.optimize!(opt.relax_model)
 
     relax_status = JuMP.termination_status(opt.relax_model)
@@ -330,9 +345,14 @@ function solve_relaxation(opt::Optimizer)
         end
         opt.status = MOI.INFEASIBLE
         return true
+    elseif relax_status == MOI.TIME_LIMIT
+        if opt.verbose
+            println("continuous relaxation solver timed out")
+        end
+        opt.status = relax_status
+        return true
     else
         @warn("continuous relaxation status $relax_status is not handled")
-        opt.status = MOI.OTHER_ERROR
         return false
     end
     # TODO if optimal solution to conic relaxation is integral, don't need to do OA
@@ -370,9 +390,8 @@ function solve_subproblem(opt::Optimizer)
     end
 
     # solve
-    # TODO ECOS errors:
-    # time_finish = check_set_time_limit(opt, opt.subp_model)
-    # time_finish && return true
+    time_finish = check_set_time_limit(opt, opt.subp_model)
+    time_finish && return true
     JuMP.optimize!(opt.subp_model)
 
     subp_status = JuMP.termination_status(opt.subp_model)
@@ -395,11 +414,16 @@ function solve_subproblem(opt::Optimizer)
     elseif subp_status in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
         # NOTE: duals are rescaled before adding subproblem cuts
         return false
+    elseif subp_status == MOI.TIME_LIMIT
+        if opt.verbose
+            println("continuous subproblem solver timed out")
+        end
+        opt.status = subp_status
+        return true
+    else
+        @warn("continuous subproblem status $subp_status is not handled")
+        return false
     end
-
-    @warn("continuous subproblem status $subp_status is not handled")
-    opt.status = MOI.OTHER_ERROR
-    return true
 end
 
 # initialize and print
