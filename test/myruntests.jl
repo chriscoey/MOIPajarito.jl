@@ -17,7 +17,8 @@ gurobi = MOI.OptimizerWithAttributes(
     MOI.Silent() => true,
     "IntFeasTol" => 1e-9,
     "FeasibilityTol" => 1e-9,
-    "MIPGap" => 1e-9,
+    "MIPGap" => 1e-10,
+    "DualReductions" => 0, # fixes infeasible or unbounded status
 )
 
 import Hypatia
@@ -35,12 +36,12 @@ hypatia = MOI.OptimizerWithAttributes(
 
 println("starting Pajarito tests")
 Test.@testset "Pajarito tests" begin
-    # println("starting MOI tests")
-    # include("MOI_tests.jl")
-    # Test.@testset "MOI tests" begin
-    #     TestMOI.runtests(glpk, hypatia)
-    #     # TestMOI.runtests(gurobi, hypatia)
-    # end
+    println("starting MOI tests")
+    include("MOI_tests.jl")
+    Test.@testset "MOI tests" begin
+        # TestMOI.runtests(glpk, hypatia)
+        TestMOI.runtests(gurobi, hypatia)
+    end
 
     println("starting JuMP tests")
     include("JuMP_tests.jl")
@@ -49,10 +50,10 @@ Test.@testset "Pajarito tests" begin
         TestJuMP.runtests(gurobi, hypatia)
     end
 
-    # println("starting CBF tests")
-    # include("CBF_tests.jl")
-    # Test.@testset "CBF tests" begin
-    #     TestCBF.runtests(glpk, hypatia)
-    #     # TestCBF.runtests(gurobi, hypatia)
-    # end
+    println("starting CBF tests")
+    include("CBF_tests.jl")
+    Test.@testset "CBF tests" begin
+        # TestCBF.runtests(glpk, hypatia)
+        TestCBF.runtests(gurobi, hypatia)
+    end
 end

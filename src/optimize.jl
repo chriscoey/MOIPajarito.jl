@@ -495,8 +495,11 @@ function setup_models(opt::Optimizer)
     opt.status = JuMP.termination_status(opt.oa_model)
     if opt.status == MOI.OPTIMAL
         opt.obj_value = JuMP.objective_value(opt.oa_model)
-        @show JuMP.primal_status(opt.oa_model)
-        opt.obj_bound = JuMP.objective_bound(opt.oa_model)
+        opt.obj_bound = if iszero(opt.num_int_vars)
+            opt.obj_value
+        else
+            JuMP.objective_bound(opt.oa_model)
+        end
         opt.incumbent = JuMP.value.(opt.oa_vars)
     end
     return true
