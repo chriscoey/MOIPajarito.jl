@@ -29,7 +29,7 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
     MOI.set(model, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("conic_solver"), conic_solver)
-    MOI.set(model, MOI.RawOptimizerAttribute("time_limit"), 60)
+    # MOI.set(model, MOI.RawOptimizerAttribute("time_limit"), 60)
     MOI.set(model, MOI.RawOptimizerAttribute("iteration_limit"), 100)
 
     MOI.Test.runtests(

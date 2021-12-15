@@ -55,7 +55,6 @@ function run_cbf(model, file::String)
 end
 
 function sssd_strong_15_4(model)
-    TOL = 1e-4
     @test MOI.get(model, MOI.TerminationStatus()) in (MOI.TIME_LIMIT, MOI.OPTIMAL)
     return
 end
