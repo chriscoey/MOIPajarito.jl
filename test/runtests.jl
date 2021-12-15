@@ -1,3 +1,11 @@
+# TODO this is temporary
+# so I don't need to tag so many versions of Hypatia to get CI running here
+# also later remove Hypatia from Project.toml deps (only keep in test deps)
+# and remove Pkg from test deps
+using Pkg
+pkg"add Hypatia#master"
+Pkg.instantiate()
+
 # all tests
 
 import Test
@@ -12,9 +20,6 @@ oa_solver = MOI.OptimizerWithAttributes(
     "tol_bnd" => 1e-10,
     "mip_gap" => 1e-10,
 )
-
-# import ECOS
-# ecos = MOI.OptimizerWithAttributes(ECOS.Optimizer, MOI.Silent() => true)
 
 import Hypatia
 hypatia = MOI.OptimizerWithAttributes(
@@ -34,21 +39,18 @@ Test.@testset "Pajarito tests" begin
     println("starting MOI tests")
     include("MOI_tests.jl")
     Test.@testset "MOI tests" begin
-        # TestMOI.runtests(oa_solver, ecos)
         TestMOI.runtests(oa_solver, hypatia)
     end
 
     println("starting JuMP tests")
     include("JuMP_tests.jl")
     Test.@testset "JuMP tests" begin
-        # TestJuMP.runtests(oa_solver, ecos)
         TestJuMP.runtests(oa_solver, hypatia)
     end
 
     println("starting CBF tests")
     include("CBF_tests.jl")
     Test.@testset "CBF tests" begin
-        # TestCBF.runtests(oa_solver, ecos)
         TestCBF.runtests(oa_solver, hypatia)
     end
 end
