@@ -308,7 +308,8 @@ function _expdesign(opt)
     function setup_exp_design()
         m = JuMP.Model(opt)
         JuMP.@variable(m, x[1:4], Int)
-        JuMP.@constraint(m, x .>= 0)
+        JuMP.@constraint(m, x[1:2] .>= 1) # avoids ill-posedness
+        JuMP.@constraint(m, x[3:4] .>= 0)
         JuMP.@constraint(m, sum(x) <= 8)
         Q = V * LinearAlgebra.diagm(x) * V'
         return (m, x, Q)

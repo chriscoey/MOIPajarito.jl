@@ -1,0 +1,89 @@
+# CBF instance tests
+
+module TestCBF
+
+using Test
+import MathOptInterface
+const MOI = MathOptInterface
+const MOIU = MOI.Utilities
+const MOIFF = MOI.FileFormats
+import MOIPajarito
+
+function runtests(oa_solver, conic_solver)
+    @testset "iterative method" begin
+        run_cbf_tests(true, oa_solver, conic_solver)
+    end
+    @testset "one tree method" begin
+        run_cbf_tests(false, oa_solver, conic_solver)
+    end
+    return
+end
+
+function run_cbf_tests(use_iter::Bool, oa_solver, conic_solver)
+    model = MOI.Bridges.full_bridge_optimizer(
+        MOI.Utilities.CachingOptimizer(
+            MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}()),
+            MOIPajarito.Optimizer(),
+        ),
+        Float64,
+    )
+    MOI.set(model, MOI.Silent(), true)
+    MOI.set(model, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
+    MOI.set(model, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
+    MOI.set(model, MOI.RawOptimizerAttribute("conic_solver"), conic_solver)
+    MOI.set(model, MOI.RawOptimizerAttribute("time_limit"), 30)
+    MOI.set(model, MOI.RawOptimizerAttribute("iteration_limit"), 100)
+
+    insts = ["sssd_strong_15_4", "exp_gatesizing", "exp_ising", "sdp_cardls"]
+    folder = joinpath(@__DIR__, "CBF")
+
+    @testset "$inst" for inst in insts
+        file = joinpath(folder, string(inst, ".cbf"))
+        run_cbf(model, file)
+        getfield(@__MODULE__, Symbol(inst))(model)
+    end
+    return
+end
+
+function run_cbf(model, file::String)
+    MOI.empty!(model)
+    src = MOIFF.Model(format = MOIFF.FORMAT_CBF)
+    MOI.read_from_file(src, file)
+    MOI.copy_to(model, src)
+    MOI.optimize!(model)
+    return model
+end
+
+function sssd_strong_15_4(model)
+    TOL = 1e-4
+    @test MOI.get(model, MOI.TerminationStatus()) == MOI.TIME_LIMIT
+    return
+end
+
+function exp_gatesizing(model)
+    # TODO one-tree method failing with GLPK because it only does non-integral lazy callbacks?
+    MOI.get(model, MOI.RawOptimizerAttribute("use_iterative_method")) || return
+    TOL = 1e-4
+    @test MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL
+    @test isapprox(MOI.get(model, MOI.ObjectiveValue()), 8.33333, atol = TOL)
+    @test isapprox(MOI.get(model, MOI.ObjectiveBound()), 8.33333, atol = TOL)
+    return
+end
+
+function exp_ising(model)
+    TOL = 1e-4
+    @test MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL
+    @test isapprox(MOI.get(model, MOI.ObjectiveValue()), 0.696499, atol = TOL)
+    @test isapprox(MOI.get(model, MOI.ObjectiveBound()), 0.696499, atol = TOL)
+    return
+end
+
+function sdp_cardls(model)
+    TOL = 1e-4
+    @test MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL
+    @test isapprox(MOI.get(model, MOI.ObjectiveValue()), 16.045564, atol = TOL)
+    @test isapprox(MOI.get(model, MOI.ObjectiveBound()), 16.045564, atol = TOL)
+    return
+end
+
+end
