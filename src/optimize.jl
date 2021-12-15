@@ -43,18 +43,21 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache}}
 
-    # modified throughout optimize and used after optimize
+    # modified throughout optimize
+    lazy_cb::Any
+    new_incumbent::Bool
+    int_sols_cuts::Dict{UInt, Vector{JuMP.AffExpr}}
+
+    # used after optimize
     status::MOI.TerminationStatusCode
+    solve_time::Float64
     incumbent::Vector{Float64}
     obj_value::Float64
     obj_bound::Float64
     num_cuts::Int
     num_iters::Int
-    lazy_cb::Any
     num_lazy_cbs::Int
     num_heuristic_cbs::Int
-    new_incumbent::Bool
-    solve_time::Float64
 
     function Optimizer(
         verbose::Bool = true,
@@ -83,35 +86,6 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.conic_opt = nothing
         return empty_all(opt)
     end
-end
-
-function empty_all(opt::Optimizer)
-    opt.relax_vars = VR[]
-    opt.oa_vars = VR[]
-    opt.subp_vars = VR[]
-    opt.incumbent = Float64[]
-    empty_optimize(opt)
-    return opt
-end
-
-function empty_optimize(opt::Optimizer)
-    opt.status = MOI.OPTIMIZE_NOT_CALLED
-    opt.obj_value = NaN
-    opt.obj_bound = NaN
-    opt.num_cuts = 0
-    opt.num_iters = 0
-    opt.lazy_cb = nothing
-    opt.num_lazy_cbs = 0
-    opt.num_heuristic_cbs = 0
-    opt.new_incumbent = false
-    opt.solve_time = NaN
-    if !isnothing(opt.oa_opt)
-        MOI.empty!(opt.oa_opt)
-    end
-    if !isnothing(opt.conic_opt)
-        MOI.empty!(opt.conic_opt)
-    end
-    return opt
 end
 
 function optimize(opt::Optimizer)
@@ -181,15 +155,24 @@ function run_iterative_method(opt::Optimizer)
     opt.obj_bound = JuMP.objective_bound(opt.oa_model)
 
     # solve conic subproblem with fixed integer solution and update incumbent
-    subp_failed = solve_subproblem(opt)
-    # subp_failed && return true
-
-    # add OA cuts and update incumbent from OA solution if no cuts are added
+    # check if integer solution is repeated
     subp_cuts_added = false
-    if !subp_failed
-        subp_cuts_added = add_subp_cuts(opt)
+    int_sol = get_integral_solution(opt)
+    hash_int_sol = hash(int_sol)
+    if haskey(opt.int_sols_cuts, hash_int_sol)
+        @warn("integral solution repeated")
+    else
+        # new integral solution: solve subproblem and add cuts
+        opt.int_sols_cuts[hash_int_sol] = JuMP.AffExpr[]
+        subp_failed = solve_subproblem(int_sol, opt)
+        if !subp_failed
+            subp_cuts_added = add_subp_cuts(opt)
+        end
     end
+
     if !subp_cuts_added
+        # add separation cuts and update incumbent from OA solution if no cuts are added
+        # TODO should check feas whether or not cuts are added, and accept incumbent if feas
         cuts_added = add_sep_cuts(opt)
         if !cuts_added
             # no separation cuts, so try updating incumbent from OA solver
@@ -251,15 +234,31 @@ function run_one_tree_method(opt::Optimizer)
         end
         opt.lazy_cb = cb
 
-        # TODO check if integer solution is repeated and cache the cuts
-        # (including those not added the first time because not violated)
-        subp_failed = solve_subproblem(opt)
-
-        # add OA cuts and update incumbent from OA solution if no cuts are added
+        # check if integer solution is repeated and cache the cuts
         subp_cuts_added = false
-        if !subp_failed
-            subp_cuts_added = add_subp_cuts(opt)
+        int_sol = get_integral_solution(opt)
+        hash_int_sol = hash(int_sol)
+        if haskey(opt.int_sols_cuts, hash_int_sol)
+            # integral solution repeated: add cached cuts
+            cuts = opt.int_sols_cuts[hash_int_sol]
+            num_cuts_before = opt.num_cuts
+            add_cuts(cuts, opt)
+            if opt.num_cuts <= num_cuts_before
+                if opt.verbose
+                    println("cached subproblem cuts could not be added")
+                end
+            else
+                subp_cuts_added = true
+            end
+        else
+            # new integral solution: solve subproblem, cache cuts, and add cuts
+            subp_failed = solve_subproblem(int_sol, opt)
+            cuts_cache = opt.int_sols_cuts[hash_int_sol] = JuMP.AffExpr[]
+            if !subp_failed
+                subp_cuts_added = add_subp_cuts(opt, cuts_cache)
+            end
         end
+
         if !subp_cuts_added
             cuts_added = add_sep_cuts(opt)
             if !cuts_added
@@ -304,21 +303,6 @@ function run_one_tree_method(opt::Optimizer)
     end
 
     return
-end
-
-function check_set_time_limit(opt::Optimizer, model::JuMP.Model)
-    time_left = opt.time_limit - time() + opt.solve_time
-    if time_left < 1e-3
-        if opt.verbose
-            println("time limit ($(opt.time_limit)) reached; terminating")
-        end
-        opt.status = MOI.TIME_LIMIT
-        return true
-    end
-    if MOI.supports(JuMP.backend(model), MOI.TimeLimitSec())
-        JuMP.set_time_limit_sec(model, time_left)
-    end
-    return false
 end
 
 function solve_relaxation(opt::Optimizer)
@@ -372,12 +356,8 @@ function solve_relaxation(opt::Optimizer)
     return false
 end
 
-# solve subproblem with new integer variable bounds
-# TODO handle non-equal bounds in lazy callback
-function solve_subproblem(opt::Optimizer)
-    x_int = opt.oa_vars[1:(opt.num_int_vars)]
-    int_sol = get_value.(x_int, opt.lazy_cb)
-
+# solve subproblem with new integer variable sub-solution
+function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
     # TODO maybe also modify the objective constant using dot(opt.c_int, int_sol), could be nonzero
     moi_model = JuMP.backend(opt.subp_model)
     if !isnothing(opt.subp_eq)
@@ -385,7 +365,7 @@ function solve_subproblem(opt::Optimizer)
         MOI.modify(moi_model, JuMP.index(opt.subp_eq), MOI.VectorConstantChange(new_b))
     end
     new_h = opt.h - opt.G_int * int_sol
-    for (cr, _, idxs) in zip(opt.subp_cones, opt.cones, opt.cone_idxs)
+    for (cr, idxs) in zip(opt.subp_cones, opt.cone_idxs)
         MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
     end
 
@@ -425,53 +405,6 @@ function solve_subproblem(opt::Optimizer)
         return false
     end
 end
-
-# initialize and print
-function start_optimize(opt::Optimizer)
-    get_conic_opt(opt)
-    get_oa_opt(opt)
-    empty_optimize(opt)
-    opt.solve_time = time()
-    opt.obj_value = Inf
-    opt.obj_bound = -Inf
-    return nothing
-end
-
-# finalize and print
-function finish_optimize(opt::Optimizer)
-    opt.solve_time = time() - opt.solve_time
-
-    oa_status = MOI.get(opt.oa_opt, MOI.TerminationStatus())
-    if opt.verbose && oa_status != MOI.OPTIMIZE_NOT_CALLED
-        println(
-            "OA solver finished with status $oa_status, after $(opt.solve_time) " *
-            "seconds and $(opt.num_cuts) cuts",
-        )
-        if opt.use_iterative_method
-            println("iterative method used $(opt.num_iters) iterations")
-        else
-            println(
-                "one tree method used $(opt.num_lazy_cbs) lazy " *
-                "callbacks and $(opt.num_heuristic_cbs) heuristic callbacks",
-            )
-        end
-    end
-    opt.verbose && println()
-
-    return nothing
-end
-
-# compute objective absolute gap
-function get_obj_abs_gap(opt::Optimizer)
-    if opt.obj_sense == MOI.FEASIBILITY_SENSE
-        return NaN
-    end
-    return opt.obj_value - opt.obj_bound
-end
-
-# compute objective relative gap
-# TODO decide whether to use 1e-5 constant
-get_obj_rel_gap(opt::Optimizer) = get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
 
 # setup conic and OA models
 function setup_models(opt::Optimizer)
@@ -568,22 +501,6 @@ function setup_models(opt::Optimizer)
     return true
 end
 
-function get_value(var::VR, ::Nothing)
-    return JuMP.value(var)
-end
-
-function get_value(var::VR, cb)
-    return JuMP.callback_value(cb, var)
-end
-
-function get_value(vars::Vector{VR}, ::Nothing)
-    return JuMP.value.(vars)
-end
-
-function get_value(vars::Vector{VR}, cb)
-    return JuMP.callback_value.(cb, vars)
-end
-
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
     for (_, _, cc) in opt.oa_cones
@@ -624,10 +541,11 @@ end
 # add subproblem dual cuts
 # TODO save the list of cut expressions (all, even if not added this round)
 # to add at repeated integral solutions.
-function add_subp_cuts(opt::Optimizer)
-    if !JuMP.has_duals(opt.subp_model)
-        return 0
-    end
+function add_subp_cuts(
+    opt::Optimizer,
+    cuts_cache::Union{Nothing, Vector{JuMP.AffExpr}} = nothing,
+)
+    JuMP.has_duals(opt.subp_model) || return false
 
     num_cuts_before = opt.num_cuts
     for (_, ci, cc) in opt.oa_cones
@@ -646,15 +564,13 @@ function add_subp_cuts(opt::Optimizer)
 
         cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
         add_cuts(cuts, opt)
+
+        if !isnothing(cuts_cache)
+            append!(cuts_cache, cuts)
+        end
     end
 
-    if opt.num_cuts <= num_cuts_before
-        if opt.verbose
-            println("subproblem cuts could not be added")
-        end
-        return false
-    end
-    return true
+    return opt.num_cuts > num_cuts_before
 end
 
 # separation cuts
@@ -691,10 +607,88 @@ function update_incumbent_from_OA(opt::Optimizer)
     end
 end
 
+function get_integral_solution(opt::Optimizer)
+    x_int = opt.oa_vars[1:(opt.num_int_vars)]
+    int_sol = get_value.(x_int, opt.lazy_cb)
+
+    # check solution is integral
+    round_int_sol = round.(Int, int_sol)
+    # TODO different tol option?
+    if !isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
+        error("integer variable solution is not integral to tolerance tol_feas")
+    end
+
+    return round_int_sol
+end
+
+# initialize and print
+function start_optimize(opt::Optimizer)
+    get_conic_opt(opt)
+    get_oa_opt(opt)
+    empty_optimize(opt)
+    opt.solve_time = time()
+    opt.obj_value = Inf
+    opt.obj_bound = -Inf
+    return nothing
+end
+
+# finalize and print
+function finish_optimize(opt::Optimizer)
+    opt.solve_time = time() - opt.solve_time
+
+    oa_status = MOI.get(opt.oa_opt, MOI.TerminationStatus())
+    if opt.verbose && oa_status != MOI.OPTIMIZE_NOT_CALLED
+        println(
+            "OA solver finished with status $oa_status, after $(opt.solve_time) " *
+            "seconds and $(opt.num_cuts) cuts",
+        )
+        if opt.use_iterative_method
+            println("iterative method used $(opt.num_iters) iterations")
+        else
+            println(
+                "one tree method used $(opt.num_lazy_cbs) lazy " *
+                "callbacks and $(opt.num_heuristic_cbs) heuristic callbacks",
+            )
+        end
+    end
+    opt.verbose && println()
+
+    return nothing
+end
+
+# compute objective absolute gap
+function get_obj_abs_gap(opt::Optimizer)
+    if opt.obj_sense == MOI.FEASIBILITY_SENSE
+        return NaN
+    end
+    return opt.obj_value - opt.obj_bound
+end
+
+# compute objective relative gap
+# TODO decide whether to use 1e-5 constant
+get_obj_rel_gap(opt::Optimizer) = get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
+
+function get_value(var::VR, ::Nothing)
+    return JuMP.value(var)
+end
+
+function get_value(var::VR, cb)
+    return JuMP.callback_value(cb, var)
+end
+
+function get_value(vars::Vector{VR}, ::Nothing)
+    return JuMP.value.(vars)
+end
+
+function get_value(vars::Vector{VR}, cb)
+    return JuMP.callback_value.(cb, vars)
+end
+
 function add_cuts(cuts::Vector{JuMP.AffExpr}, opt::Optimizer)
     for cut in cuts
         opt.num_cuts += add_cut(cut, opt)
     end
+    return
 end
 
 function add_cut(cut::JuMP.AffExpr, opt::Optimizer)
@@ -714,4 +708,46 @@ function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, tol_feas::Float64, cb)
         return 1
     end
     return 0
+end
+
+function check_set_time_limit(opt::Optimizer, model::JuMP.Model)
+    time_left = opt.time_limit - time() + opt.solve_time
+    if time_left < 1e-3
+        if opt.verbose
+            println("time limit ($(opt.time_limit)) reached; terminating")
+        end
+        opt.status = MOI.TIME_LIMIT
+        return true
+    end
+    if MOI.supports(JuMP.backend(model), MOI.TimeLimitSec())
+        JuMP.set_time_limit_sec(model, time_left)
+    end
+    return false
+end
+
+function empty_all(opt::Optimizer)
+    opt.incumbent = Float64[] # could be a warm start
+    empty_optimize(opt)
+    return opt
+end
+
+function empty_optimize(opt::Optimizer)
+    opt.status = MOI.OPTIMIZE_NOT_CALLED
+    opt.solve_time = NaN
+    opt.obj_value = NaN
+    opt.obj_bound = NaN
+    opt.num_cuts = 0
+    opt.num_iters = 0
+    opt.num_lazy_cbs = 0
+    opt.num_heuristic_cbs = 0
+    opt.lazy_cb = nothing
+    opt.new_incumbent = false
+    opt.int_sols_cuts = Dict{UInt, Vector{JuMP.AffExpr}}()
+    if !isnothing(opt.oa_opt)
+        MOI.empty!(opt.oa_opt)
+    end
+    if !isnothing(opt.conic_opt)
+        MOI.empty!(opt.conic_opt)
+    end
+    return opt
 end
