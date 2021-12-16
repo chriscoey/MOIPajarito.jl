@@ -39,28 +39,36 @@ function get_subp_cuts(
 )
     p = z[1]
     r = z[3]
-    if p >= 0 || r <= 0
+    if p > 0 || r < 0
         # z ∉ K
-        @warn("exp cone dual vector is not in the dual cone")
+        @warn("exponential cone dual vector violates variable bounds")
         return JuMP.AffExpr[]
     end
+    q = z[2]
 
-    # strengthened cut is (p, p * (log(r / -p) + 1), r)
-    q = p * (log(r / -p) + 1)
-    if r < 1e-9
-        # TODO needed for GLPK
-        @warn("exp cone subproblem cut has bad numerics")
-        r = 0.0
-    end
     (u, v, w) = cache.s_oa
-    cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
+    if r / -p > 1e-8
+        # strengthened cut is (p, p * (log(r / -p) + 1), r)
+        q = p * (log(r / -p) + 1)
+        cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
+    elseif q / p < 30
+        # strengthened cut is (p, q, -p * exp(q / p - 1))
+        r = -p * exp(q / p - 1)
+        cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
+    elseif p > -1e-8
+        # strengthened cut is (0, max(q, 0), max(r, 0))
+        cut = JuMP.@expression(oa_model, max(q, 0) * v + r * w)
+    else
+        @warn("exponential cone dual vector has bad conditioning")
+        return JuMP.AffExpr[]
+    end
     return [cut]
 end
 
 function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
     (us, vs, ws) = cache.s
     if min(ws, vs) < 0
-        error("exp cone point violates variable lower bounds")
+        error("exponential cone point violates variable lower bounds")
     end
     (u, v, w) = cache.s_oa
 
@@ -69,21 +77,28 @@ function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
         # vs near zero, so violation is us
         if us >= 1e-7
             if ws <= 1e-12
-                @warn("cannot add separation cut for exponential cone")
+                error("cannot add separation cut for exponential cone")
             end
 
             # cut is (-2, -2 * log(ℯ / 2 * us / ws), us / ws)
             r = us / ws
             q = -2 * log(ℯ / 2 * r)
             cut = JuMP.@expression(oa_model, -2u + q * v + r * w)
-            return [cut]
+        else
+            return JuMP.AffExpr[]
         end
-    elseif us - vs * log(ws / vs) > 1e-7
-        # vs not near zero, so violation is u - v * log(w / v)
+    elseif ws / vs > 1e-8 && us - vs * log(ws / vs) > 1e-7
+        # vs and ws not near zero
         # gradient cut is (-1, log(ws / vs) - 1, vs / ws)
         q = log(ws / vs) - 1
         cut = JuMP.@expression(oa_model, -u + q * v + vs / ws * w)
-        return [cut]
+    elseif vs * exp(us / vs) - ws > 1e-7
+        # gradient cut is (-exp(us / vs), (us - vs) / vs * exp(us / vs), 1)
+        p = -exp(us / vs)
+        q = (us - vs) / vs * p
+        cut = JuMP.@expression(oa_model, p * u + q * v + w)
+    else
+        return JuMP.AffExpr[]
     end
-    return JuMP.AffExpr[]
+    return [cut]
 end
