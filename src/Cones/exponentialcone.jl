@@ -59,22 +59,31 @@ end
 
 function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
     (us, vs, ws) = cache.s
-    if min(ws, vs) <= -1e-7
-        error("exp cone point violates initial cuts")
+    if min(ws, vs) < 0
+        error("exp cone point violates variable lower bounds")
     end
-    if min(ws, vs) <= 0
-        # error("TODO add a cut")
-        return JuMP.AffExpr[]
-    end
-
-    # check s ∉ K
-    if vs * log(ws / vs) - us > -1e-7
-        return JuMP.AffExpr[]
-    end
-
-    # gradient cut is (-1, log(ws / vs) - 1, vs / ws)
-    q = log(ws / vs) - 1
     (u, v, w) = cache.s_oa
-    cut = JuMP.@expression(oa_model, -u + q * v + vs / ws * w)
-    return [cut]
+
+    # check s ∉ K and add cut
+    if vs <= 1e-7
+        # vs near zero, so violation is us
+        if us >= 1e-7
+            if ws <= 1e-12
+                @warn("cannot add separation cut for exponential cone")
+            end
+
+            # cut is (-2, -2 * log(ℯ / 2 * us / ws), us / ws)
+            r = us / ws
+            q = -2 * log(ℯ / 2 * r)
+            cut = JuMP.@expression(oa_model, -2u + q * v + r * w)
+            return [cut]
+        end
+    elseif us - vs * log(ws / vs) > 1e-7
+        # vs not near zero, so violation is u - v * log(w / v)
+        # gradient cut is (-1, log(ws / vs) - 1, vs / ws)
+        q = log(ws / vs) - 1
+        cut = JuMP.@expression(oa_model, -u + q * v + vs / ws * w)
+        return [cut]
+    end
+    return JuMP.AffExpr[]
 end
