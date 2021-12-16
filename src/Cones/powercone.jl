@@ -40,7 +40,7 @@ end
 function get_subp_cuts(z::Vector{Float64}, cache::PowerConeCache, oa_model::JuMP.Model)
     p = z[1]
     q = z[2]
-    if min(p, q) <= 0
+    if min(p, q) < 0
         # z ∉ K
         @warn("dual vector is not in the dual cone")
         return JuMP.AffExpr[]
@@ -56,8 +56,8 @@ end
 
 function get_sep_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
     (us, vs, ws) = cache.s
-    if min(us, vs) <= -1e-7
-        error("power cone point violates initial cuts")
+    if min(us, vs) < 0
+        error("power cone point violates variable lower bounds")
     end
 
     # check s ∉ K
@@ -67,7 +67,7 @@ function get_sep_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
     end
 
     # gradient cut is (t * (us/vs)^(t-1), (1-t) * (us/vs)^t, -sign(ws))
-    # TODO need better approach when u or v near zero
+    # perturb point if u or v is near zero
     us = max(us, 1e-8)
     vs = max(vs, 1e-8)
     (u, v, w) = s_vars

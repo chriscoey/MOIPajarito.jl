@@ -45,9 +45,11 @@ function get_subp_cuts(
         return JuMP.AffExpr[]
     end
     q = z[2]
-
     (u, v, w) = cache.s_oa
-    if r / -p > 1e-8
+
+    if p > -1e-12
+        return JuMP.AffExpr[]
+    elseif r / -p > 1e-8
         # strengthened cut is (p, p * (log(r / -p) + 1), r)
         q = p * (log(r / -p) + 1)
         cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
@@ -55,11 +57,7 @@ function get_subp_cuts(
         # strengthened cut is (p, q, -p * exp(q / p - 1))
         r = -p * exp(q / p - 1)
         cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
-    elseif p > -1e-8
-        # strengthened cut is (0, max(q, 0), max(r, 0))
-        cut = JuMP.@expression(oa_model, max(q, 0) * v + r * w)
     else
-        @warn("exponential cone dual vector has bad conditioning")
         return JuMP.AffExpr[]
     end
     return [cut]
@@ -80,10 +78,10 @@ function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
                 error("cannot add separation cut for exponential cone")
             end
 
-            # cut is (-2, -2 * log(ℯ / 2 * us / ws), us / ws)
-            r = us / ws
-            q = -2 * log(ℯ / 2 * r)
-            cut = JuMP.@expression(oa_model, -2u + q * v + r * w)
+            # cut is (-1, -log(ℯ / 2 * us / ws), us / ws / 2)
+            r = us / (2 * ws)
+            q = -log(ℯ / 2 * r)
+            cut = JuMP.@expression(oa_model, -u + q * v + r * w)
         else
             return JuMP.AffExpr[]
         end
