@@ -66,7 +66,9 @@ function MOI.supports_constraint(
     F::Type{<:Union{VV, VAF}},
     S::Type{<:Union{MOI.Zeros, MOI.Nonnegatives, Cones.OACone}},
 )
-    return MOI.supports_constraint(get_conic_opt(opt), F, S)
+    conic_opt = get_conic_opt(opt)
+    isnothing(conic_opt) && return true
+    return MOI.supports_constraint(conic_opt, F, S)
 end
 
 MOI.supports(::Optimizer, ::MOI.VariablePrimalStart, ::Type{VI}) = true
@@ -311,10 +313,7 @@ function get_oa_opt(opt::Optimizer)
 end
 
 function get_conic_opt(opt::Optimizer)
-    if isnothing(opt.conic_opt)
-        if isnothing(opt.conic_solver)
-            error("No primal-dual conic solver specified (set `conic_solver`)")
-        end
+    if isnothing(opt.conic_opt) && !isnothing(opt.conic_solver)
         opt.conic_opt = MOI.instantiate(opt.conic_solver, with_bridge_type = Float64)
     end
     return opt.conic_opt

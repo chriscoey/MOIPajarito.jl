@@ -31,17 +31,19 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
 
     # models, variables, etc
     oa_model::JuMP.Model
-    relax_model::JuMP.Model
-    subp_model::JuMP.Model
     oa_vars::Vector{VR}
+    relax_model::JuMP.Model
     relax_vars::Vector{VR}
+    relax_oa_cones::Vector{CR}
+    subp_model::JuMP.Model
     subp_vars::Vector{VR}
     subp_eq::Union{Nothing, CR}
     subp_cones::Vector{CR}
+    subp_oa_cones::Vector{CR}
     c_int::Vector{Float64}
     A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
-    oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache}}
+    oa_cones::Vector{Cones.ConeCache}
 
     # modified throughout optimize
     lazy_cb::Any
@@ -408,7 +410,9 @@ end
 
 # setup conic and OA models
 function setup_models(opt::Optimizer)
+    has_conic_opt = !isnothing(opt.conic_opt)
     has_eq = !isempty(opt.b)
+
     has_warm_start = false
     if !isempty(opt.warm_start)
         if any(isnan, opt.warm_start)
@@ -433,15 +437,6 @@ function setup_models(opt::Optimizer)
         JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
     end
 
-    # continuous relaxation model
-    relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
-    x_relax = JuMP.@variable(relax, [1:length(opt.c)])
-    opt.relax_vars = x_relax
-    JuMP.@objective(relax, Min, JuMP.dot(opt.c, x_relax))
-    if has_eq
-        JuMP.@constraint(relax, opt.A * x_relax .== opt.b)
-    end
-
     # differentiate integer and continuous variables
     num_cont_vars = length(opt.c) - opt.num_int_vars
     int_range = 1:(opt.num_int_vars)
@@ -455,20 +450,36 @@ function setup_models(opt::Optimizer)
         A_cont = opt.A[:, cont_range]
     end
 
-    # continuous subproblem model
-    subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
-    x_subp = JuMP.@variable(subp, [1:num_cont_vars])
-    opt.subp_vars = x_subp
-    JuMP.@objective(subp, Min, JuMP.dot(c_cont, x_subp))
-    opt.subp_eq = if has_eq
-        JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b)))
-    else
-        nothing
+    if has_conic_opt
+        # continuous relaxation model
+        relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
+        x_relax = JuMP.@variable(relax, [1:length(opt.c)])
+        opt.relax_vars = x_relax
+        JuMP.@objective(relax, Min, JuMP.dot(opt.c, x_relax))
+        if has_eq
+            JuMP.@constraint(relax, opt.A * x_relax .== opt.b)
+        end
+
+        # continuous subproblem model
+        subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
+        x_subp = JuMP.@variable(subp, [1:num_cont_vars])
+        opt.subp_vars = x_subp
+        JuMP.@objective(subp, Min, JuMP.dot(c_cont, x_subp))
+        opt.subp_eq = if has_eq
+            JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b)))
+        else
+            nothing
+        end
     end
 
     # conic constraints
-    opt.oa_cones = Tuple{CR, CR, Cones.ConeCache}[]
-    opt.subp_cones = CR[]
+    opt.oa_cones = Cones.ConeCache[]
+    if has_conic_opt
+        opt.relax_oa_cones = CR[]
+        opt.subp_oa_cones = CR[]
+        opt.subp_cones = CR[]
+    end
+
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         # TODO should keep h_i and G_i separate for the individual cone constraints
         h_i = opt.h[idxs]
