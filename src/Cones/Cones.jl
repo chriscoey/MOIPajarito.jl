@@ -13,7 +13,12 @@ abstract type Extender end
 struct Unextended <: Extender end
 struct Extended <: Extender end
 
-extender(extend::Bool) = (extend ? Extended : Unextended)
+function extender(extend::Bool, d::Int)
+    if d <= 1 || !extend
+        return Unextended
+    end
+    return Extended
+end
 
 abstract type ConeCache end
 
