@@ -24,6 +24,7 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
     opt = JuMP.optimizer_with_attributes(
         MOIPajarito.Optimizer,
         "verbose" => true,
+        # "verbose" => false,
         "use_iterative_method" => use_iter,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
@@ -76,6 +77,13 @@ function _soc1(opt)
     @test isapprox(JuMP.objective_value(m), -3, atol = TOL)
     @test isapprox(JuMP.objective_bound(m), -3, atol = TOL)
     @test isapprox(JuMP.value(x), 1, atol = TOL)
+
+    JuMP.set_start_value(x, 1)
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test isapprox(JuMP.objective_value(m), -3, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), -3, atol = TOL)
+    @test isapprox(JuMP.value(x), 1, atol = TOL)
     return
 end
 
@@ -117,6 +125,7 @@ function _soc3(opt)
     d = 3
     m = JuMP.Model(opt)
     JuMP.@variable(m, x[1:d], Bin)
+    JuMP.set_start_value.(x, 1) # infeasible
     JuMP.@constraint(m, vcat(sqrt(d - 1) / 2, x .- 0.5) in JuMP.SecondOrderCone())
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.INFEASIBLE
@@ -317,6 +326,7 @@ function _expdesign(opt)
 
     # A-optimal
     (m, x, Q) = setup_exp_design()
+    JuMP.set_start_value.(x, [4, 4, 0, 0]) # partial warm start
     JuMP.@variable(m, y[1:2])
     JuMP.@objective(m, Min, sum(y))
     for i in 1:2
@@ -337,6 +347,7 @@ function _expdesign(opt)
     # E-optimal
     (m, x, Q) = setup_exp_design()
     JuMP.@variable(m, y)
+    JuMP.set_start_value.(vcat(x, y), [4, 4, 0, 0, 8]) # full warm start
     JuMP.@objective(m, Max, y)
     Qy = Q - y * Matrix(LinearAlgebra.I, 2, 2)
     JuMP.@constraint(m, LinearAlgebra.Symmetric(Qy) in JuMP.PSDCone())

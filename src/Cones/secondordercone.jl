@@ -19,11 +19,12 @@ end
 function create_cache(s_oa::Vector{VR}, cone::MOI.SecondOrderCone, extend::Bool)
     dim = MOI.dimension(cone)
     @assert dim == length(s_oa)
-    E = extender(extend)
+    d = dim - 1
+    E = extender(extend, d)
     cache = SecondOrderConeCache{E}()
     cache.cone = cone
     cache.s_oa = s_oa
-    cache.d = dim - 1
+    cache.d = d
     return cache
 end
 

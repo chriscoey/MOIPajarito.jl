@@ -48,10 +48,11 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     new_incumbent::Bool
     int_sols_cuts::Dict{UInt, Vector{JuMP.AffExpr}}
 
-    # used after optimize
+    # used by MOI wrapper
+    incumbent::Vector{Float64}
+    warm_start::Vector{Float64}
     status::MOI.TerminationStatusCode
     solve_time::Float64
-    incumbent::Vector{Float64}
     obj_value::Float64
     obj_bound::Float64
     num_cuts::Int
@@ -84,7 +85,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.conic_solver = conic_solver
         opt.oa_opt = nothing
         opt.conic_opt = nothing
-        return empty_all(opt)
+        return empty_optimize(opt)
     end
 end
 
@@ -152,7 +153,7 @@ function run_iterative_method(opt::Optimizer)
     end
 
     # update objective bound
-    opt.obj_bound = JuMP.objective_bound(opt.oa_model)
+    opt.obj_bound = get_objective_bound(opt.oa_model)
 
     # solve conic subproblem with fixed integer solution and update incumbent
     # check if integer solution is repeated
@@ -289,7 +290,7 @@ function run_one_tree_method(opt::Optimizer)
     oa_status = JuMP.termination_status(opt.oa_model)
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
-        opt.obj_bound = JuMP.objective_bound(opt.oa_model)
+        opt.obj_bound = get_objective_bound(opt.oa_model)
     elseif oa_status == MOI.INFEASIBLE
         opt.status = oa_status
     elseif oa_status == MOI.TIME_LIMIT
@@ -384,8 +385,7 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
         if obj_val < opt.obj_value
             # update incumbent and objective value
             subp_sol = JuMP.value.(opt.subp_vars)
-            opt.incumbent[1:(opt.num_int_vars)] = int_sol
-            opt.incumbent[(opt.num_int_vars + 1):end] = subp_sol
+            opt.incumbent = vcat(int_sol, subp_sol)
             opt.obj_value = obj_val
             # println("new incumbent")
             opt.new_incumbent = true
@@ -409,6 +409,14 @@ end
 # setup conic and OA models
 function setup_models(opt::Optimizer)
     has_eq = !isempty(opt.b)
+    has_warm_start = false
+    if !isempty(opt.warm_start)
+        if any(isnan, opt.warm_start)
+            @warn("warm start is only partial so will be ignored")
+        else
+            has_warm_start = true
+        end
+    end
 
     # mixed-integer OA model
     oa = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
@@ -416,6 +424,9 @@ function setup_models(opt::Optimizer)
     opt.oa_vars = x_oa
     for i in 1:(opt.num_int_vars)
         JuMP.set_integer(x_oa[i])
+    end
+    if has_warm_start
+        JuMP.set_start_value.(x_oa, opt.warm_start)
     end
     JuMP.@objective(oa, Min, JuMP.dot(opt.c, x_oa))
     if has_eq
@@ -449,10 +460,10 @@ function setup_models(opt::Optimizer)
     x_subp = JuMP.@variable(subp, [1:num_cont_vars])
     opt.subp_vars = x_subp
     JuMP.@objective(subp, Min, JuMP.dot(c_cont, x_subp))
-    if has_eq
-        opt.subp_eq = JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b)))
+    opt.subp_eq = if has_eq
+        JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b)))
     else
-        opt.subp_eq = nothing
+        nothing
     end
 
     # conic constraints
@@ -474,9 +485,13 @@ function setup_models(opt::Optimizer)
             # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
             s_i = JuMP.@variable(oa, [1:length(idxs)])
             JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
+            if has_warm_start
+                s_i_start = h_i - G_i * opt.warm_start
+                JuMP.set_start_value.(s_i, s_i_start)
+            end
 
             cc = Cones.create_cache(s_i, cone, opt.use_extended_form)
-            Cones.setup_auxiliary(cc, oa)
+            Cones.setup_auxiliary(cc, oa) # TODO set warm start on EF variables
 
             push!(opt.oa_cones, (K_relax_i, K_subp_i, cc))
         end
@@ -495,11 +510,7 @@ function setup_models(opt::Optimizer)
     opt.status = JuMP.termination_status(opt.oa_model)
     if opt.status == MOI.OPTIMAL
         opt.obj_value = JuMP.objective_value(opt.oa_model)
-        opt.obj_bound = if iszero(opt.num_int_vars)
-            opt.obj_value
-        else
-            JuMP.objective_bound(opt.oa_model)
-        end
+        opt.obj_bound = get_objective_bound(opt.oa_model)
         opt.incumbent = JuMP.value.(opt.oa_vars)
     end
     return true
@@ -510,14 +521,12 @@ function add_init_cuts(opt::Optimizer)
     for (_, _, cc) in opt.oa_cones
         opt.num_cuts += Cones.add_init_cuts(cc, opt.oa_model)
     end
-    return nothing
+    return
 end
 
 # add relaxation dual cuts
 function add_relax_cuts(opt::Optimizer)
-    if !JuMP.has_duals(opt.relax_model)
-        return 0
-    end
+    JuMP.has_duals(opt.relax_model) || return 0
 
     num_cuts_before = opt.num_cuts
     for (ci, _, cc) in opt.oa_cones
@@ -604,7 +613,7 @@ function update_incumbent_from_OA(opt::Optimizer)
     obj_val = LinearAlgebra.dot(opt.c, sol)
     if obj_val < opt.obj_value
         # update incumbent and objective value
-        copyto!(opt.incumbent, sol)
+        opt.incumbent = sol
         opt.obj_value = obj_val
         println("new incumbent")
         opt.new_incumbent = true
@@ -633,7 +642,7 @@ function start_optimize(opt::Optimizer)
     opt.solve_time = time()
     opt.obj_value = Inf
     opt.obj_bound = -Inf
-    return nothing
+    return
 end
 
 # finalize and print
@@ -657,7 +666,7 @@ function finish_optimize(opt::Optimizer)
     end
     opt.verbose && println()
 
-    return nothing
+    return
 end
 
 # compute objective absolute gap
@@ -671,6 +680,19 @@ end
 # compute objective relative gap
 # TODO decide whether to use 1e-5 constant
 get_obj_rel_gap(opt::Optimizer) = get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
+
+# try to get an objective bound or dual objective value, else use the primal objective value
+function get_objective_bound(model::JuMP.Model)
+    try
+        return JuMP.objective_bound(model)
+    catch
+    end
+    try
+        return JuMP.dual_objective_value(model)
+    catch
+    end
+    return JuMP.objective_value(model)
+end
 
 function get_value(var::VR, ::Nothing)
     return JuMP.value(var)
@@ -727,12 +749,6 @@ function check_set_time_limit(opt::Optimizer, model::JuMP.Model)
         JuMP.set_time_limit_sec(model, time_left)
     end
     return false
-end
-
-function empty_all(opt::Optimizer)
-    opt.incumbent = Float64[] # could be a warm start
-    empty_optimize(opt)
-    return opt
 end
 
 function empty_optimize(opt::Optimizer)

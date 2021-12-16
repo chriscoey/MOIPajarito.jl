@@ -5,7 +5,7 @@ _is_empty(opt::MOI.AbstractOptimizer) = MOI.is_empty(opt)
 
 MOI.is_empty(opt::Optimizer) = (_is_empty(opt.oa_opt) && _is_empty(opt.conic_opt))
 
-MOI.empty!(opt::Optimizer) = empty_all(opt)
+MOI.empty!(opt::Optimizer) = empty_optimize(opt)
 
 MOI.get(::Optimizer, ::MOI.SolverName) = "Pajarito"
 
@@ -71,39 +71,47 @@ end
 
 MOI.supports(::Optimizer, ::MOI.VariablePrimalStart, ::Type{VI}) = true
 
-function MOI.set(opt::Optimizer, ::MOI.VariablePrimalStart, vi::VI, value)
-    opt.incumbent[vi.value] = something(value, NaN)
-    error("VariablePrimalStart not implemented")
-    return
-end
-
 function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     idx_map = MOI.Utilities.IndexMap()
 
+    # variable attributes including variable warm start
+    has_warm_start = false
+    for attr in MOI.get(src, MOI.ListOfVariableAttributesSet())
+        if attr == MOI.VariableName()
+            continue
+        elseif attr == MOI.VariablePrimalStart()
+            has_warm_start = true
+            continue
+        end
+        throw(MOI.UnsupportedAttribute(attr))
+    end
+    get_start(j::Int) = something(MOI.get(src, MOI.VariablePrimalStart(), VI(j)), NaN)
+
     # variables
-    n = MOI.get(src, MOI.NumberOfVariables()) # columns of A
+    n = MOI.get(src, MOI.NumberOfVariables())
+    opt.warm_start = has_warm_start ? fill(NaN, n) : Float64[]
     j = 0
-    # integer variables first
+    # integer variables
     cis = MOI.get(src, MOI.ListOfConstraintIndices{VI, MOI.Integer}())
     opt.num_int_vars = length(cis)
     for ci in cis
         j += 1
         idx_map[ci] = ci
         idx_map[VI(ci.value)] = VI(j)
+        if has_warm_start
+            opt.warm_start[j] = get_start(j)
+        end
     end
-    # continuous variables last
+    # continuous variables
     for vj in MOI.get(src, MOI.ListOfVariableIndices())
         haskey(idx_map, vj) && continue
         j += 1
         idx_map[vj] = VI(j)
+        if has_warm_start
+            opt.warm_start[j] = get_start(j)
+        end
     end
     @assert j == n
-    for attr in MOI.get(src, MOI.ListOfVariableAttributesSet())
-        if attr == MOI.VariableName()
-            continue
-        end
-        throw(MOI.UnsupportedAttribute(attr))
-    end
 
     # objective
     opt.obj_sense = MOI.MIN_SENSE
