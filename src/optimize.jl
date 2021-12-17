@@ -453,6 +453,7 @@ function setup_models(opt::Optimizer)
     if has_eq
         opt.A_int = opt.A[:, int_range]
         A_cont = opt.A[:, cont_range]
+        @warn("if any rows of A_cont are all zero, then filter them out and change b for the subproblem too")
     end
 
     # continuous subproblem model
@@ -476,6 +477,9 @@ function setup_models(opt::Optimizer)
         G_cont_i = G_cont[idxs, :]
 
         K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
+        if iszero(SparseArrays.nnz(G_cont_i))
+            @warn("G_cont_i is zero. if cone is in the oa model then don't add the constraint?")
+        end
         K_subp_i = JuMP.@constraint(subp, -G_cont_i * x_subp in cone)
         push!(opt.subp_cones, K_subp_i)
 
