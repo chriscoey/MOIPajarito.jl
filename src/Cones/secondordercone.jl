@@ -82,6 +82,21 @@ end
 
 # extended formulation
 
+function extend_warm_start(cache::SecondOrderConeCache{Extended})
+    s_start = JuMP.start_value.(cache.s_oa)
+    u_start = s_start[1]
+    ϕ = cache.ϕ
+    if u_start < 1e-8
+        JuMP.set_start_value.(ϕ, 0)
+        return
+    end
+    for i in 1:(cache.d)
+        w_i = s_start[1 + i]
+        JuMP.set_start_value(ϕ[i], w_i^2 / 2u_start)
+    end
+    return
+end
+
 function setup_auxiliary(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
     cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
     u = cache.s_oa[1]

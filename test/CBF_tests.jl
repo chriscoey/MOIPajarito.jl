@@ -38,6 +38,7 @@ function run_cbf_tests(use_iter::Bool, oa_solver, conic_solver)
     folder = joinpath(@__DIR__, "CBF")
 
     @testset "$inst" for inst in insts
+        println(inst)
         file = joinpath(folder, string(inst, ".cbf"))
         run_cbf(model, file)
         getfield(@__MODULE__, Symbol(inst))(model)

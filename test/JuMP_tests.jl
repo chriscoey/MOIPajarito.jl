@@ -33,6 +33,7 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
     )
     insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
     @testset "$inst" for inst in insts
+        println(inst)
         inst(opt)
     end
     return
@@ -214,11 +215,12 @@ function _pow1(opt)
     @test isapprox(JuMP.value(y), 0.25, atol = TOL)
 
     JuMP.set_integer(z)
+    JuMP.@objective(m, Min, x + 3y)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL
     @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
-    @test isapprox(JuMP.objective_value(m), 3, atol = TOL)
-    @test isapprox(JuMP.objective_bound(m), 3, atol = TOL)
+    @test isapprox(JuMP.objective_value(m), 3.5, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 3.5, atol = TOL)
     @test isapprox(JuMP.value(x), 2, atol = TOL)
     @test isapprox(JuMP.value(y), 0.5, atol = TOL)
     @test isapprox(JuMP.value(z), 1, atol = TOL)
