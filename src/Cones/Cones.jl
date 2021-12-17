@@ -37,6 +37,8 @@ const OACone = Union{
 
 setup_auxiliary(::ConeCache, ::JuMP.Model) = nothing
 
+extend_warm_start(::ConeCache) = nothing
+
 function dot_expr(
     z::AbstractVecOrMat{Float64},
     vars::AbstractVecOrMat{VR},

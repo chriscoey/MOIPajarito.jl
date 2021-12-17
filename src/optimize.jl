@@ -90,6 +90,27 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     end
 end
 
+function empty_optimize(opt::Optimizer)
+    opt.status = MOI.OPTIMIZE_NOT_CALLED
+    opt.solve_time = NaN
+    opt.obj_value = NaN
+    opt.obj_bound = NaN
+    opt.num_cuts = 0
+    opt.num_iters = 0
+    opt.num_lazy_cbs = 0
+    opt.num_heuristic_cbs = 0
+    opt.lazy_cb = nothing
+    opt.new_incumbent = false
+    opt.int_sols_cuts = Dict{UInt, Vector{JuMP.AffExpr}}()
+    if !isnothing(opt.oa_opt)
+        MOI.empty!(opt.oa_opt)
+    end
+    if !isnothing(opt.conic_opt)
+        MOI.empty!(opt.conic_opt)
+    end
+    return opt
+end
+
 function optimize(opt::Optimizer)
     start_optimize(opt)
 
@@ -458,6 +479,9 @@ function setup_models(opt::Optimizer)
         A_cont = A_cont[keep_rows, :]
         opt.b_cont = opt.b[keep_rows]
         opt.A_int = opt.A[keep_rows, int_range]
+    else
+        opt.b_cont = Float64[]
+        opt.A_int = zeros(Float64, 0, opt.num_int_vars)
     end
 
     # continuous subproblem model
@@ -499,10 +523,12 @@ function setup_models(opt::Optimizer)
                 JuMP.set_start_value.(s_i, s_i_start)
             end
 
-            cc = Cones.create_cache(s_i, cone, opt.use_extended_form)
-            Cones.setup_auxiliary(cc, oa) # TODO set warm start on EF variables
+            # set up cone cache and extended formulation
+            cache = Cones.create_cache(s_i, cone, opt.use_extended_form)
+            Cones.setup_auxiliary(cache, oa)
+            has_warm_start && Cones.extend_warm_start(cache)
 
-            push!(opt.oa_cones, (K_relax_i, K_subp_i, cc))
+            push!(opt.oa_cones, (K_relax_i, K_subp_i, cache))
         end
     end
 
@@ -527,8 +553,8 @@ end
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (_, _, cc) in opt.oa_cones
-        opt.num_cuts += Cones.add_init_cuts(cc, opt.oa_model)
+    for (_, _, cache) in opt.oa_cones
+        opt.num_cuts += Cones.add_init_cuts(cache, opt.oa_model)
     end
     return
 end
@@ -538,7 +564,7 @@ function add_relax_cuts(opt::Optimizer)
     JuMP.has_duals(opt.relax_model) || return 0
 
     num_cuts_before = opt.num_cuts
-    for (ci, _, cc) in opt.oa_cones
+    for (ci, _, cache) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -547,7 +573,7 @@ function add_relax_cuts(opt::Optimizer)
             @warn("norm of dual is large ($z_norm)")
         end
 
-        cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
+        cuts = Cones.get_subp_cuts(z, cache, opt.oa_model)
         add_cuts(cuts, opt)
     end
 
@@ -570,7 +596,7 @@ function add_subp_cuts(
     JuMP.has_duals(opt.subp_model) || return false
 
     num_cuts_before = opt.num_cuts
-    for (_, ci, cc) in opt.oa_cones
+    for (_, ci, cache) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -584,7 +610,7 @@ function add_subp_cuts(
             z .*= inv(z_norm)
         end
 
-        cuts = Cones.get_subp_cuts(z, cc, opt.oa_model)
+        cuts = Cones.get_subp_cuts(z, cache, opt.oa_model)
         add_cuts(cuts, opt)
 
         if !isnothing(cuts_cache)
@@ -598,11 +624,11 @@ end
 # separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    for (_, _, cc) in opt.oa_cones
-        Cones.load_s(cc, opt.lazy_cb)
+    for (_, _, cache) in opt.oa_cones
+        Cones.load_s(cache, opt.lazy_cb)
     end
-    for (_, _, cc) in opt.oa_cones
-        cuts = Cones.get_sep_cuts(cc, opt.oa_model)
+    for (_, _, cache) in opt.oa_cones
+        cuts = Cones.get_sep_cuts(cache, opt.oa_model)
         add_cuts(cuts, opt)
     end
 
@@ -758,25 +784,4 @@ function check_set_time_limit(opt::Optimizer, model::JuMP.Model)
         JuMP.set_time_limit_sec(model, time_left)
     end
     return false
-end
-
-function empty_optimize(opt::Optimizer)
-    opt.status = MOI.OPTIMIZE_NOT_CALLED
-    opt.solve_time = NaN
-    opt.obj_value = NaN
-    opt.obj_bound = NaN
-    opt.num_cuts = 0
-    opt.num_iters = 0
-    opt.num_lazy_cbs = 0
-    opt.num_heuristic_cbs = 0
-    opt.lazy_cb = nothing
-    opt.new_incumbent = false
-    opt.int_sols_cuts = Dict{UInt, Vector{JuMP.AffExpr}}()
-    if !isnothing(opt.oa_opt)
-        MOI.empty!(opt.oa_opt)
-    end
-    if !isnothing(opt.conic_opt)
-        MOI.empty!(opt.conic_opt)
-    end
-    return opt
 end
