@@ -362,17 +362,39 @@ function solve_relaxation(opt::Optimizer)
         @warn("continuous relaxation status $relax_status is not handled")
         return false
     end
-    # TODO if optimal solution to conic relaxation is integral, don't need to do OA
 
+    finish = false
+
+    # check whether problem is continuous
     if iszero(opt.num_int_vars)
-        # problem is continuous
         if opt.verbose
-            println("problem is continuous; terminating without using OA solver")
+            println("problem is continuous; terminating")
         end
+        finish = true
+    end
+
+    if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
+        # check whether conic relaxation solution is integral
+        int_sol = JuMP.value.(opt.relax_vars[1:(opt.num_int_vars)])
+        round_int_sol = round.(Int, int_sol)
+        # TODO different tol option?
+        if isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
+            if opt.verbose
+                println("optimal solution to conic relaxation is integral; terminating")
+            end
+            finish = true
+        end
+    end
+
+    if finish
         if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
             opt.status = MOI.OPTIMAL
             opt.obj_value = JuMP.objective_value(opt.relax_model)
             opt.incumbent = JuMP.value.(opt.relax_vars)
+        elseif relax_status in (MOI.DUAL_INFEASIBLE, MOI.ALMOST_DUAL_INFEASIBLE)
+            opt.status = MOI.DUAL_INFEASIBLE
+        else
+            error("status $(opt.status) not handled")
         end
         return true
     end
@@ -665,7 +687,6 @@ function get_integral_solution(opt::Optimizer)
     if !isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
         error("integer variable solution is not integral to tolerance tol_feas")
     end
-
     return round_int_sol
 end
 
