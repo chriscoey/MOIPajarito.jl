@@ -37,10 +37,11 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     relax_vars::Vector{VR}
     subp_vars::Vector{VR}
     subp_eq::Union{Nothing, CR}
-    subp_cones::Vector{CR}
+    subp_cones::Vector{Tuple{CR, UnitRange{Int}}}
     c_int::Vector{Float64}
     A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
+    b_cont::Vector{Float64}
     oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache}}
 
     # modified throughout optimize
@@ -362,11 +363,11 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
     # TODO maybe also modify the objective constant using dot(opt.c_int, int_sol), could be nonzero
     moi_model = JuMP.backend(opt.subp_model)
     if !isnothing(opt.subp_eq)
-        new_b = opt.b - opt.A_int * int_sol
+        new_b = opt.b_cont - opt.A_int * int_sol
         MOI.modify(moi_model, JuMP.index(opt.subp_eq), MOI.VectorConstantChange(new_b))
     end
     new_h = opt.h - opt.G_int * int_sol
-    for (cr, idxs) in zip(opt.subp_cones, opt.cone_idxs)
+    for (cr, idxs) in opt.subp_cones
         MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
     end
 
@@ -451,9 +452,12 @@ function setup_models(opt::Optimizer)
     c_cont = opt.c[cont_range]
     G_cont = opt.G[:, cont_range]
     if has_eq
-        opt.A_int = opt.A[:, int_range]
         A_cont = opt.A[:, cont_range]
-        @warn("if any rows of A_cont are all zero, then filter them out and change b for the subproblem too")
+        # remove zero rows in A_cont for subproblem
+        keep_rows = (vec(maximum(abs, A_cont, dims = 2)) .>= 1e-10)
+        A_cont = A_cont[keep_rows, :]
+        opt.b_cont = opt.b[keep_rows]
+        opt.A_int = opt.A[keep_rows, int_range]
     end
 
     # continuous subproblem model
@@ -462,14 +466,14 @@ function setup_models(opt::Optimizer)
     opt.subp_vars = x_subp
     JuMP.@objective(subp, Min, JuMP.dot(c_cont, x_subp))
     opt.subp_eq = if has_eq
-        JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b)))
+        JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b_cont)))
     else
         nothing
     end
 
     # conic constraints
     opt.oa_cones = Tuple{CR, CR, Cones.ConeCache}[]
-    opt.subp_cones = CR[]
+    opt.subp_cones = Tuple{CR, UnitRange{Int}}[]
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         # TODO should keep h_i and G_i separate for the individual cone constraints
         h_i = opt.h[idxs]
@@ -477,13 +481,14 @@ function setup_models(opt::Optimizer)
         G_cont_i = G_cont[idxs, :]
 
         K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
-        if iszero(SparseArrays.nnz(G_cont_i))
-            @warn("G_cont_i is zero. if cone is in the oa model then don't add the constraint?")
-        end
-        K_subp_i = JuMP.@constraint(subp, -G_cont_i * x_subp in cone)
-        push!(opt.subp_cones, K_subp_i)
 
-        if MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
+        oa_supports = MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
+        if !oa_supports || !iszero(G_cont_i)
+            K_subp_i = JuMP.@constraint(subp, -G_cont_i * x_subp in cone)
+            push!(opt.subp_cones, (K_subp_i, idxs))
+        end
+
+        if oa_supports
             JuMP.@constraint(oa, h_i - G_i * x_oa in cone)
         else
             # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
