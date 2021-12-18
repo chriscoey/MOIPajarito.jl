@@ -33,21 +33,23 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_model::JuMP.Model
     relax_model::JuMP.Model
     subp_model::JuMP.Model
-    oa_vars::Vector{VR}
-    relax_vars::Vector{VR}
-    subp_vars::Vector{VR}
+    x_oa::Vector{VR}
+    x_relax::Vector{VR}
+    x_subp::Vector{VR}
     subp_eq::Union{Nothing, CR}
     subp_cones::Vector{Tuple{CR, UnitRange{Int}}}
     c_int::Vector{Float64}
     A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     b_cont::Vector{Float64}
-    oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache}}
+    oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache, Vector{VR}, UnitRange{Int}}}
+    oa_vars::Vector{VR}
 
-    # modified throughout optimize
+    # used/modified during optimize
     lazy_cb::Any
     new_incumbent::Bool
     int_sols_cuts::Dict{UInt, Vector{JuMP.AffExpr}}
+    use_oa_starts::Bool
 
     # used by MOI wrapper
     incumbent::Vector{Float64}
@@ -239,6 +241,12 @@ function run_iterative_method(opt::Optimizer)
         opt.status = MOI.ITERATION_LIMIT
         return true
     end
+
+    # set warm start from incumbent
+    if opt.use_oa_starts && isfinite(opt.obj_value)
+        oa_start = get_oa_start(opt, opt.incumbent)
+        JuMP.set_start_value.(opt.oa_vars, oa_start)
+    end
     return false
 end
 
@@ -247,10 +255,11 @@ function run_one_tree_method(opt::Optimizer)
     if opt.verbose
         println("starting one tree method")
     end
+    oa_model = opt.oa_model
 
     function lazy_cb(cb)
         opt.num_lazy_cbs += 1
-        cb_status = JuMP.callback_node_status(cb, opt.oa_model)
+        cb_status = JuMP.callback_node_status(cb, oa_model)
         if cb_status != MOI.CALLBACK_NODE_STATUS_INTEGER
             # only solve subproblem at an integer solution
             return
@@ -291,28 +300,28 @@ function run_one_tree_method(opt::Optimizer)
         end
         return
     end
-    MOI.set(opt.oa_model, MOI.LazyConstraintCallback(), lazy_cb)
+    MOI.set(oa_model, MOI.LazyConstraintCallback(), lazy_cb)
 
     function heuristic_cb(cb)
         opt.num_heuristic_cbs += 1
         opt.new_incumbent || return true
-        cb_status =
-            MOI.submit(opt.oa_model, MOI.HeuristicSolution(cb), opt.oa_vars, opt.incumbent)
+        oa_start = get_oa_start(opt, opt.incumbent)
+        cb_status = MOI.submit(oa_model, MOI.HeuristicSolution(cb), opt.oa_vars, oa_start)
         println("heuristic cb status was: ", cb_status)
         # TODO do what with cb_status
         opt.new_incumbent = false
         return
     end
-    MOI.set(opt.oa_model, MOI.HeuristicCallback(), heuristic_cb)
+    MOI.set(oa_model, MOI.HeuristicCallback(), heuristic_cb)
 
-    time_finish = check_set_time_limit(opt, opt.oa_model)
+    time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true
-    JuMP.optimize!(opt.oa_model)
+    JuMP.optimize!(oa_model)
 
-    oa_status = JuMP.termination_status(opt.oa_model)
+    oa_status = JuMP.termination_status(oa_model)
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
-        opt.obj_bound = get_objective_bound(opt.oa_model)
+        opt.obj_bound = get_objective_bound(oa_model)
     elseif oa_status == MOI.INFEASIBLE
         opt.status = oa_status
     elseif oa_status == MOI.TIME_LIMIT
@@ -324,7 +333,6 @@ function run_one_tree_method(opt::Optimizer)
         @warn("OA solver status $oa_status is not handled")
         opt.status = MOI.OTHER_ERROR
     end
-
     return
 end
 
@@ -375,7 +383,7 @@ function solve_relaxation(opt::Optimizer)
 
     if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
         # check whether conic relaxation solution is integral
-        int_sol = JuMP.value.(opt.relax_vars[1:(opt.num_int_vars)])
+        int_sol = JuMP.value.(opt.x_relax[1:(opt.num_int_vars)])
         round_int_sol = round.(Int, int_sol)
         # TODO different tol option?
         if isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
@@ -390,7 +398,7 @@ function solve_relaxation(opt::Optimizer)
         if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
             opt.status = MOI.OPTIMAL
             opt.obj_value = JuMP.objective_value(opt.relax_model)
-            opt.incumbent = JuMP.value.(opt.relax_vars)
+            opt.incumbent = JuMP.value.(opt.x_relax)
         elseif relax_status in (MOI.DUAL_INFEASIBLE, MOI.ALMOST_DUAL_INFEASIBLE)
             opt.status = MOI.DUAL_INFEASIBLE
         else
@@ -428,7 +436,7 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
             JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
         if obj_val < opt.obj_value
             # update incumbent and objective value
-            subp_sol = JuMP.value.(opt.subp_vars)
+            subp_sol = JuMP.value.(opt.x_subp)
             opt.incumbent = vcat(int_sol, subp_sol)
             opt.obj_value = obj_val
             # println("new incumbent")
@@ -453,37 +461,24 @@ end
 # setup conic and OA models
 function setup_models(opt::Optimizer)
     has_eq = !isempty(opt.b)
-    has_warm_start = false
-    if !isempty(opt.warm_start)
-        if any(isnan, opt.warm_start)
-            @warn("warm start is only partial so will be ignored")
-        else
-            has_warm_start = true
-        end
-    end
 
     # mixed-integer OA model
-    oa = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
-    x_oa = JuMP.@variable(oa, [1:length(opt.c)])
-    opt.oa_vars = x_oa
+    oa_model = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
+    x_oa = opt.x_oa = JuMP.@variable(oa_model, [1:length(opt.c)])
     for i in 1:(opt.num_int_vars)
         JuMP.set_integer(x_oa[i])
     end
-    if has_warm_start
-        JuMP.set_start_value.(x_oa, opt.warm_start)
-    end
-    JuMP.@objective(oa, Min, JuMP.dot(opt.c, x_oa))
+    JuMP.@objective(oa_model, Min, JuMP.dot(opt.c, x_oa))
     if has_eq
-        JuMP.@constraint(oa, opt.A * x_oa .== opt.b)
+        JuMP.@constraint(oa_model, opt.A * x_oa .== opt.b)
     end
 
     # continuous relaxation model
-    relax = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
-    x_relax = JuMP.@variable(relax, [1:length(opt.c)])
-    opt.relax_vars = x_relax
-    JuMP.@objective(relax, Min, JuMP.dot(opt.c, x_relax))
+    relax_model = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
+    x_relax = opt.x_relax = JuMP.@variable(relax_model, [1:length(opt.c)])
+    JuMP.@objective(relax_model, Min, JuMP.dot(opt.c, x_relax))
     if has_eq
-        JuMP.@constraint(relax, opt.A * x_relax .== opt.b)
+        JuMP.@constraint(relax_model, opt.A * x_relax .== opt.b)
     end
 
     # differentiate integer and continuous variables
@@ -507,50 +502,59 @@ function setup_models(opt::Optimizer)
     end
 
     # continuous subproblem model
-    subp = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
-    x_subp = JuMP.@variable(subp, [1:num_cont_vars])
-    opt.subp_vars = x_subp
-    JuMP.@objective(subp, Min, JuMP.dot(c_cont, x_subp))
+    subp_model = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
+    x_subp = opt.x_subp = JuMP.@variable(subp_model, [1:num_cont_vars])
+    JuMP.@objective(subp_model, Min, JuMP.dot(c_cont, x_subp))
     opt.subp_eq = if has_eq
-        JuMP.@constraint(subp, -A_cont * x_subp in MOI.Zeros(length(opt.b_cont)))
+        JuMP.@constraint(subp_model, -A_cont * x_subp in MOI.Zeros(length(opt.b_cont)))
     else
         nothing
     end
 
     # conic constraints
-    opt.oa_cones = Tuple{CR, CR, Cones.ConeCache}[]
+    opt.oa_cones = Tuple{CR, CR, Cones.ConeCache, Vector{VR}, UnitRange{Int}}[]
     opt.subp_cones = Tuple{CR, UnitRange{Int}}[]
+    oa_vars = opt.oa_vars = copy(x_oa)
+
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         # TODO should keep h_i and G_i separate for the individual cone constraints
         h_i = opt.h[idxs]
         G_i = opt.G[idxs, :]
         G_cont_i = G_cont[idxs, :]
 
-        K_relax_i = JuMP.@constraint(relax, h_i - G_i * x_relax in cone)
+        K_relax_i = JuMP.@constraint(relax_model, h_i - G_i * x_relax in cone)
 
         oa_supports = MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
         if !oa_supports || !iszero(G_cont_i)
-            K_subp_i = JuMP.@constraint(subp, -G_cont_i * x_subp in cone)
+            K_subp_i = JuMP.@constraint(subp_model, -G_cont_i * x_subp in cone)
             push!(opt.subp_cones, (K_subp_i, idxs))
         end
 
         if oa_supports
-            JuMP.@constraint(oa, h_i - G_i * x_oa in cone)
+            JuMP.@constraint(oa_model, h_i - G_i * x_oa in cone)
         else
             # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
-            s_i = JuMP.@variable(oa, [1:length(idxs)])
-            JuMP.@constraint(oa, s_i .== h_i - G_i * x_oa)
-            if has_warm_start
-                s_i_start = h_i - G_i * opt.warm_start
-                JuMP.set_start_value.(s_i, s_i_start)
-            end
+            s_i = JuMP.@variable(oa_model, [1:length(idxs)])
+            append!(oa_vars, s_i)
+            JuMP.@constraint(oa_model, s_i .== h_i - G_i * x_oa)
 
             # set up cone cache and extended formulation
             cache = Cones.create_cache(s_i, cone, opt.use_extended_form)
-            Cones.setup_auxiliary(cache, oa)
-            has_warm_start && Cones.extend_warm_start(cache)
+            ext_i = Cones.setup_auxiliary(cache, oa_model)
+            append!(oa_vars, ext_i)
 
-            push!(opt.oa_cones, (K_relax_i, K_subp_i, cache))
+            push!(opt.oa_cones, (K_relax_i, K_subp_i, cache, s_i, idxs))
+        end
+    end
+    @assert JuMP.num_variables(oa_model) == length(oa_vars)
+
+    opt.use_oa_starts = MOI.supports(JuMP.backend(oa_model), MOI.VariablePrimalStart(), VI)
+    if opt.use_oa_starts && !isempty(opt.warm_start)
+        if any(isnan, opt.warm_start)
+            @warn("warm start is only partial so will be ignored")
+        else
+            oa_start = get_oa_start(opt, opt.warm_start)
+            JuMP.set_start_value.(oa_vars, oa_start)
         end
     end
 
@@ -560,22 +564,22 @@ function setup_models(opt::Optimizer)
     end
 
     # no conic constraints need outer approximation, so just solve the OA model and finish
-    time_finish = check_set_time_limit(opt, opt.oa_model)
+    time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true
-    JuMP.optimize!(opt.oa_model)
+    JuMP.optimize!(oa_model)
 
-    opt.status = JuMP.termination_status(opt.oa_model)
+    opt.status = JuMP.termination_status(oa_model)
     if opt.status == MOI.OPTIMAL
-        opt.obj_value = JuMP.objective_value(opt.oa_model)
-        opt.obj_bound = get_objective_bound(opt.oa_model)
-        opt.incumbent = JuMP.value.(opt.oa_vars)
+        opt.obj_value = JuMP.objective_value(oa_model)
+        opt.obj_bound = get_objective_bound(oa_model)
+        opt.incumbent = JuMP.value.(x_oa)
     end
     return true
 end
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (_, _, cache) in opt.oa_cones
+    for (_, _, cache, _, _) in opt.oa_cones
         opt.num_cuts += Cones.add_init_cuts(cache, opt.oa_model)
     end
     return
@@ -586,7 +590,7 @@ function add_relax_cuts(opt::Optimizer)
     JuMP.has_duals(opt.relax_model) || return 0
 
     num_cuts_before = opt.num_cuts
-    for (ci, _, cache) in opt.oa_cones
+    for (ci, _, cache, _, _) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -618,7 +622,7 @@ function add_subp_cuts(
     JuMP.has_duals(opt.subp_model) || return false
 
     num_cuts_before = opt.num_cuts
-    for (_, ci, cache) in opt.oa_cones
+    for (_, ci, cache, _, _) in opt.oa_cones
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -639,17 +643,16 @@ function add_subp_cuts(
             append!(cuts_cache, cuts)
         end
     end
-
     return opt.num_cuts > num_cuts_before
 end
 
 # separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    for (_, _, cache) in opt.oa_cones
+    for (_, _, cache, _, _) in opt.oa_cones
         Cones.load_s(cache, opt.lazy_cb)
     end
-    for (_, _, cache) in opt.oa_cones
+    for (_, _, cache, _, _) in opt.oa_cones
         cuts = Cones.get_sep_cuts(cache, opt.oa_model)
         add_cuts(cuts, opt)
     end
@@ -666,7 +669,7 @@ end
 # update incumbent from OA solver
 function update_incumbent_from_OA(opt::Optimizer)
     # obj_val = JuMP.objective_value(opt.oa_model)
-    sol = get_value(opt.oa_vars, opt.lazy_cb)
+    sol = get_value(opt.x_oa, opt.lazy_cb)
     obj_val = LinearAlgebra.dot(opt.c, sol)
     if obj_val < opt.obj_value
         # update incumbent and objective value
@@ -675,10 +678,11 @@ function update_incumbent_from_OA(opt::Optimizer)
         println("new incumbent")
         opt.new_incumbent = true
     end
+    return
 end
 
 function get_integral_solution(opt::Optimizer)
-    x_int = opt.oa_vars[1:(opt.num_int_vars)]
+    x_int = opt.x_oa[1:(opt.num_int_vars)]
     int_sol = get_value.(x_int, opt.lazy_cb)
 
     # check solution is integral
@@ -688,6 +692,31 @@ function get_integral_solution(opt::Optimizer)
         error("integer variable solution is not integral to tolerance tol_feas")
     end
     return round_int_sol
+end
+
+function get_oa_start(opt::Optimizer, x_start::Vector{Float64})
+    n = length(opt.incumbent)
+    @assert length(x_start) == n
+
+    oa_start = fill(NaN, length(opt.oa_vars))
+    fill!(oa_start, NaN)
+    oa_start[1:n] .= x_start
+
+    s_start = opt.h - opt.G * x_start
+    for (_, _, cache, _, idxs) in opt.oa_cones
+        s_start_i = s_start[idxs]
+        dim = length(s_start_i)
+        oa_start[n .+ (1:dim)] .= s_start_i
+        n += dim
+        ext_start = Cones.extend_start(cache, s_start_i)
+        isempty(ext_start) && continue
+        ext_dim = length(ext_start)
+        oa_start[n .+ (1:ext_dim)] .= ext_start
+        n += ext_dim
+    end
+    @assert n == length(oa_start)
+    @assert !any(isnan, oa_start)
+    return oa_start
 end
 
 # initialize and print
@@ -721,7 +750,6 @@ function finish_optimize(opt::Optimizer)
         end
     end
     opt.verbose && println()
-
     return
 end
 

@@ -82,26 +82,21 @@ end
 
 # extended formulation
 
-function extend_warm_start(cache::SecondOrderConeCache{Extended})
-    s_start = JuMP.start_value.(cache.s_oa)
+function extend_start(cache::SecondOrderConeCache{Extended}, s_start::Vector{Float64})
     u_start = s_start[1]
-    ϕ = cache.ϕ
+    w_start = s_start[2:end]
+    @assert u_start - LinearAlgebra.norm(w_start) >= -1e-7 # TODO
     if u_start < 1e-8
-        JuMP.set_start_value.(ϕ, 0)
-        return
+        return zeros(cache.d)
     end
-    for i in 1:(cache.d)
-        w_i = s_start[1 + i]
-        JuMP.set_start_value(ϕ[i], w_i^2 / 2u_start)
-    end
-    return
+    return [w_i / 2u_start * w_i for w_i in w_start]
 end
 
 function setup_auxiliary(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
-    cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
+    ϕ = cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
     u = cache.s_oa[1]
-    JuMP.@constraint(oa_model, u ≥ 2 * sum(cache.ϕ))
-    return
+    JuMP.@constraint(oa_model, u ≥ 2 * sum(ϕ))
+    return ϕ
 end
 
 function add_init_cuts(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
