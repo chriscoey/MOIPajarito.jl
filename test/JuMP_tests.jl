@@ -123,14 +123,23 @@ end
 
 function _soc3(opt)
     TOL = 1e-4
-    d = 3
     m = JuMP.Model(opt)
-    JuMP.@variable(m, x[1:d], Bin)
-    JuMP.set_start_value.(x, 1) # infeasible
-    JuMP.@constraint(m, vcat(sqrt(d - 1) / 2, x .- 0.5) in JuMP.SecondOrderCone())
+    JuMP.@variable(m, x[1:3], Bin)
+    # JuMP.set_start_value.(x, 1) # infeasible
+    soc = JuMP.@constraint(m, vcat(inv(sqrt(2)), x .- 0.5) in JuMP.SecondOrderCone())
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.INFEASIBLE
     @test JuMP.primal_status(m) == MOI.NO_SOLUTION
+
+    JuMP.@objective(m, Min, 1 + sum(x))
+    JuMP.delete(m, soc)
+    JuMP.@constraint(m, vcat(1.5, x .- 1) in JuMP.SecondOrderCone())
+    JuMP.set_start_value.(x, [1, 0, 0])
+    JuMP.optimize!(m)
+    @test JuMP.termination_status(m) == MOI.OPTIMAL
+    @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), 2, atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), 2, atol = TOL)
     return
 end
 

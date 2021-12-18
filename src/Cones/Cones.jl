@@ -5,9 +5,7 @@ module Cones
 import LinearAlgebra
 import JuMP
 const MOI = JuMP.MOI
-const AVS = MOI.AbstractVectorSet
 const VR = JuMP.VariableRef
-const CR = JuMP.ConstraintRef
 
 abstract type Extender end
 struct Unextended <: Extender end
@@ -35,9 +33,9 @@ const OACone = Union{
     MOI.PositiveSemidefiniteConeTriangle,
 }
 
-setup_auxiliary(::ConeCache, ::JuMP.Model) = nothing
+setup_auxiliary(::ConeCache, ::JuMP.Model) = VR[]
 
-extend_warm_start(::ConeCache) = nothing
+extend_start(::ConeCache, ::Vector{Float64}) = Float64[]
 
 function dot_expr(
     z::AbstractVecOrMat{Float64},
