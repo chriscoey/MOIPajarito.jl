@@ -80,11 +80,9 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     # equality constraints
     (IA, JA, VA) = (Int[], Int[], Float64[])
     model_b = Float64[]
-    # opt.zeros_idxs = zeros_idxs = Vector{UnitRange{Int}}()
     for F in (VV, VAF), ci in get_src_cons(F, MOI.Zeros)
         fi = get_con_fun(ci)
         idxs = _constraint_IJV(IA, JA, VA, model_b, fi, idx_map)
-        # push!(zeros_idxs, idxs)
         idx_map[ci] = ci
     end
     opt.A = SparseArrays.dropzeros!(SparseArrays.sparse(IA, JA, VA, length(model_b), n))
@@ -135,9 +133,8 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
         end
     end
 
-    opt.G = SparseArrays.dropzeros!(
-        SparseArrays.sparse(IG, JG, VG, length(model_h), length(model_c)),
-    )
+    G = SparseArrays.sparse(IG, JG, VG, length(model_h), length(model_c))
+    opt.G = SparseArrays.dropzeros!(G)
     opt.h = model_h
     opt.cones = cones
     opt.cone_idxs = cone_idxs

@@ -33,9 +33,9 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_model::JuMP.Model
     relax_model::JuMP.Model
     subp_model::JuMP.Model
-    x_oa::Vector{VR}
-    x_relax::Vector{VR}
-    x_subp::Vector{VR}
+    oa_x::Vector{VR}
+    relax_x::Vector{VR}
+    subp_x::Vector{VR}
     subp_eq::Union{Nothing, CR}
     subp_cones::Vector{CR}
     subp_cone_idxs::Vector{UnitRange{Int}}

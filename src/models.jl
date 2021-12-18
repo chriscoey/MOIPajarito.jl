@@ -6,21 +6,21 @@ function setup_models(opt::Optimizer)
 
     # mixed-integer OA model
     oa_model = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
-    x_oa = opt.x_oa = JuMP.@variable(oa_model, [1:length(opt.c)])
+    oa_x = opt.oa_x = JuMP.@variable(oa_model, [1:length(opt.c)])
     for i in 1:(opt.num_int_vars)
-        JuMP.set_integer(x_oa[i])
+        JuMP.set_integer(oa_x[i])
     end
-    JuMP.@objective(oa_model, Min, JuMP.dot(opt.c, x_oa))
+    JuMP.@objective(oa_model, Min, JuMP.dot(opt.c, oa_x))
     if has_eq
-        JuMP.@constraint(oa_model, opt.A * x_oa .== opt.b)
+        JuMP.@constraint(oa_model, opt.A * oa_x .== opt.b)
     end
 
     # continuous relaxation model
     relax_model = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
-    x_relax = opt.x_relax = JuMP.@variable(relax_model, [1:length(opt.c)])
-    JuMP.@objective(relax_model, Min, JuMP.dot(opt.c, x_relax))
+    relax_x = opt.relax_x = JuMP.@variable(relax_model, [1:length(opt.c)])
+    JuMP.@objective(relax_model, Min, JuMP.dot(opt.c, relax_x))
     if has_eq
-        JuMP.@constraint(relax_model, opt.A * x_relax .== opt.b)
+        JuMP.@constraint(relax_model, opt.A * relax_x .== opt.b)
     end
 
     # differentiate integer and continuous variables
@@ -31,6 +31,7 @@ function setup_models(opt::Optimizer)
     opt.G_int = opt.G[:, int_range]
     c_cont = opt.c[cont_range]
     G_cont = opt.G[:, cont_range]
+
     if has_eq
         A_cont = opt.A[:, cont_range]
         # remove zero rows in A_cont for subproblem
@@ -45,16 +46,20 @@ function setup_models(opt::Optimizer)
 
     # continuous subproblem model
     subp_model = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
-    x_subp = opt.x_subp = JuMP.@variable(subp_model, [1:num_cont_vars])
-    JuMP.@objective(subp_model, Min, JuMP.dot(c_cont, x_subp))
+    subp_x = opt.subp_x = JuMP.@variable(subp_model, [1:num_cont_vars])
+    JuMP.@objective(subp_model, Min, JuMP.dot(c_cont, subp_x))
     opt.subp_eq = if has_eq
-        JuMP.@constraint(subp_model, -A_cont * x_subp in MOI.Zeros(length(opt.b_cont)))
+        JuMP.@constraint(subp_model, -A_cont * subp_x in MOI.Zeros(length(opt.b_cont)))
     else
         nothing
     end
 
     # conic constraints
-    oa_vars = opt.oa_vars = copy(x_oa)
+    oa_aff = JuMP.@expression(oa_model, opt.h - opt.G * oa_x)
+    relax_aff = JuMP.@expression(relax_model, opt.h - opt.G * relax_x)
+    subp_aff = JuMP.@expression(subp_model, -G_cont * subp_x)
+
+    oa_vars = opt.oa_vars = copy(oa_x)
     opt.subp_cones = CR[]
     opt.subp_cone_idxs = UnitRange{Int}[]
     opt.relax_oa_cones = CR[]
@@ -63,27 +68,26 @@ function setup_models(opt::Optimizer)
     opt.oa_cone_idxs = UnitRange{Int}[]
 
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
-        # TODO should keep h_i and G_i separate for the individual cone constraints
-        h_i = opt.h[idxs]
-        G_i = opt.G[idxs, :]
-        G_cont_i = G_cont[idxs, :]
-
-        relax_cone_i = JuMP.@constraint(relax_model, h_i - G_i * x_relax in cone)
+        relax_cone_i = JuMP.@constraint(relax_model, relax_aff[idxs] in cone)
 
         oa_supports = MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
-        if !oa_supports || !iszero(G_cont_i)
-            subp_cone_i = JuMP.@constraint(subp_model, -G_cont_i * x_subp in cone)
+
+        subp_aff_i = subp_aff[idxs]
+        if !oa_supports || !iszero(subp_aff_i)
+            # conic constraint must be added to subproblem
+            subp_cone_i = JuMP.@constraint(subp_model, subp_aff_i in cone)
             push!(opt.subp_cones, subp_cone_i)
             push!(opt.subp_cone_idxs, idxs)
         end
 
+        oa_aff_i = oa_aff[idxs]
         if oa_supports
-            JuMP.@constraint(oa_model, h_i - G_i * x_oa in cone)
+            JuMP.@constraint(oa_model, oa_aff_i in cone)
         else
-            # TODO don't add slacks if h_i = 0 and G_i = -I (i.e. original constraint was a VV)
+            # TODO check if oa_aff_i is equal to a VV, in which case don't add slacks s_i
             s_i = JuMP.@variable(oa_model, [1:length(idxs)])
             append!(oa_vars, s_i)
-            JuMP.@constraint(oa_model, s_i .== h_i - G_i * x_oa)
+            JuMP.@constraint(oa_model, s_i .== oa_aff_i)
 
             # set up cone cache and extended formulation
             cache = Cones.create_cache(s_i, cone, opt.use_extended_form)
@@ -122,7 +126,7 @@ function setup_models(opt::Optimizer)
     if opt.status == MOI.OPTIMAL
         opt.obj_value = JuMP.objective_value(oa_model)
         opt.obj_bound = get_objective_bound(oa_model)
-        opt.incumbent = JuMP.value.(x_oa)
+        opt.incumbent = JuMP.value.(oa_x)
     end
     return true
 end

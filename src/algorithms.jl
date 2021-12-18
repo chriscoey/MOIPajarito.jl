@@ -270,7 +270,7 @@ function solve_relaxation(opt::Optimizer)
 
     if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
         # check whether conic relaxation solution is integral
-        int_sol = JuMP.value.(opt.x_relax[1:(opt.num_int_vars)])
+        int_sol = JuMP.value.(opt.relax_x[1:(opt.num_int_vars)])
         round_int_sol = round.(Int, int_sol)
         # TODO different tol option?
         if isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
@@ -285,7 +285,7 @@ function solve_relaxation(opt::Optimizer)
         if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
             opt.status = MOI.OPTIMAL
             opt.obj_value = JuMP.objective_value(opt.relax_model)
-            opt.incumbent = JuMP.value.(opt.x_relax)
+            opt.incumbent = JuMP.value.(opt.relax_x)
         elseif relax_status in (MOI.DUAL_INFEASIBLE, MOI.ALMOST_DUAL_INFEASIBLE)
             opt.status = MOI.DUAL_INFEASIBLE
         else
@@ -315,7 +315,7 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
             JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
         if obj_val < opt.obj_value
             # update incumbent and objective value
-            subp_sol = JuMP.value.(opt.x_subp)
+            subp_sol = JuMP.value.(opt.subp_x)
             opt.incumbent = vcat(int_sol, subp_sol)
             opt.obj_value = obj_val
             # println("new incumbent")
@@ -340,7 +340,7 @@ end
 # update incumbent from OA solver
 function update_incumbent_from_OA(opt::Optimizer)
     # obj_val = JuMP.objective_value(opt.oa_model)
-    sol = get_value(opt.x_oa, opt.lazy_cb)
+    sol = get_value(opt.oa_x, opt.lazy_cb)
     obj_val = LinearAlgebra.dot(opt.c, sol)
     if obj_val < opt.obj_value
         # update incumbent and objective value
@@ -353,7 +353,7 @@ function update_incumbent_from_OA(opt::Optimizer)
 end
 
 function get_integral_solution(opt::Optimizer)
-    x_int = opt.x_oa[1:(opt.num_int_vars)]
+    x_int = opt.oa_x[1:(opt.num_int_vars)]
     int_sol = get_value.(x_int, opt.lazy_cb)
 
     # check solution is integral
