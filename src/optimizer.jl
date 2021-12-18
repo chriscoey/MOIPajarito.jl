@@ -108,6 +108,7 @@ function empty_optimize(opt::Optimizer)
     opt.lazy_cb = nothing
     opt.new_incumbent = false
     opt.int_sols_cuts = Dict{UInt, Vector{JuMP.AffExpr}}()
+
     if !isnothing(opt.oa_opt)
         MOI.empty!(opt.oa_opt)
     end
@@ -115,4 +116,35 @@ function empty_optimize(opt::Optimizer)
         MOI.empty!(opt.conic_opt)
     end
     return opt
+end
+
+function get_oa_opt(opt::Optimizer)
+    if isnothing(opt.oa_opt)
+        if isnothing(opt.oa_solver)
+            error("No outer approximation solver specified (set `oa_solver`)")
+        end
+        opt.oa_opt = MOI.instantiate(opt.oa_solver, with_bridge_type = Float64)
+        # check whether lazy constraints are supported
+        supports_lazy = MOI.supports(opt.oa_opt, MOI.LazyConstraintCallback())
+        if isnothing(opt.use_iterative_method)
+            # default to one tree method if possible
+            opt.use_iterative_method = !supports_lazy
+        elseif !opt.use_iterative_method && !supports_lazy
+            error(
+                "Outer approximation solver (`oa_solver`) does not support " *
+                "lazy constraint callbacks (`use_iterative_method` must be `true`)",
+            )
+        end
+    end
+    return opt.oa_opt
+end
+
+function get_conic_opt(opt::Optimizer)
+    if isnothing(opt.conic_opt)
+        if isnothing(opt.conic_solver)
+            error("No primal-dual conic solver specified (set `conic_solver`)")
+        end
+        opt.conic_opt = MOI.instantiate(opt.conic_solver, with_bridge_type = Float64)
+    end
+    return opt.conic_opt
 end

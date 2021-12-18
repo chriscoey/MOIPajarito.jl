@@ -22,5 +22,6 @@ include("models.jl")
 include("cuts.jl")
 include("JuMP_tools.jl")
 include("MOI_wrapper.jl")
+include("MOI_copy_to.jl")
 
 end
