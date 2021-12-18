@@ -164,7 +164,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     # conic constraints
     (IG, JG, VG) = (Int[], Int[], Float64[])
     model_h = Float64[]
-    cones = AVS[]
+    cones = MOI.AbstractVectorSet[]
     cone_idxs = Vector{UnitRange{Int}}()
 
     # build up one nonnegative cone

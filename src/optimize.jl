@@ -25,7 +25,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     b::Vector{Float64}
     G::SparseArrays.SparseMatrixCSC{Float64, Int}
     h::Vector{Float64}
-    cones::Vector{AVS}
+    cones::Vector{MOI.AbstractVectorSet}
     cone_idxs::Vector{UnitRange{Int}}
     num_int_vars::Int
 
@@ -37,13 +37,17 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     x_relax::Vector{VR}
     x_subp::Vector{VR}
     subp_eq::Union{Nothing, CR}
-    subp_cones::Vector{Tuple{CR, UnitRange{Int}}}
+    subp_cones::Vector{CR}
+    subp_cone_idxs::Vector{UnitRange{Int}}
     c_int::Vector{Float64}
     A_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     G_int::SparseArrays.SparseMatrixCSC{Float64, Int}
     b_cont::Vector{Float64}
-    oa_cones::Vector{Tuple{CR, CR, Cones.ConeCache, Vector{VR}, UnitRange{Int}}}
     oa_vars::Vector{VR}
+    relax_oa_cones::Vector{CR}
+    subp_oa_cones::Vector{CR}
+    cone_caches::Vector{Cones.ConeCache}
+    oa_cone_idxs::Vector{UnitRange{Int}}
 
     # used/modified during optimize
     lazy_cb::Any
@@ -418,7 +422,7 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
         MOI.modify(moi_model, JuMP.index(opt.subp_eq), MOI.VectorConstantChange(new_b))
     end
     new_h = opt.h - opt.G_int * int_sol
-    for (cr, idxs) in opt.subp_cones
+    for (cr, idxs) in zip(opt.subp_cones, opt.subp_cone_idxs)
         MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
     end
 
@@ -512,9 +516,13 @@ function setup_models(opt::Optimizer)
     end
 
     # conic constraints
-    opt.oa_cones = Tuple{CR, CR, Cones.ConeCache, Vector{VR}, UnitRange{Int}}[]
-    opt.subp_cones = Tuple{CR, UnitRange{Int}}[]
     oa_vars = opt.oa_vars = copy(x_oa)
+    opt.subp_cones = CR[]
+    opt.subp_cone_idxs = UnitRange{Int}[]
+    opt.relax_oa_cones = CR[]
+    opt.subp_oa_cones = CR[]
+    opt.cone_caches = Cones.ConeCache[]
+    opt.oa_cone_idxs = UnitRange{Int}[]
 
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         # TODO should keep h_i and G_i separate for the individual cone constraints
@@ -522,12 +530,13 @@ function setup_models(opt::Optimizer)
         G_i = opt.G[idxs, :]
         G_cont_i = G_cont[idxs, :]
 
-        K_relax_i = JuMP.@constraint(relax_model, h_i - G_i * x_relax in cone)
+        relax_cone_i = JuMP.@constraint(relax_model, h_i - G_i * x_relax in cone)
 
         oa_supports = MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
         if !oa_supports || !iszero(G_cont_i)
-            K_subp_i = JuMP.@constraint(subp_model, -G_cont_i * x_subp in cone)
-            push!(opt.subp_cones, (K_subp_i, idxs))
+            subp_cone_i = JuMP.@constraint(subp_model, -G_cont_i * x_subp in cone)
+            push!(opt.subp_cones, subp_cone_i)
+            push!(opt.subp_cone_idxs, idxs)
         end
 
         if oa_supports
@@ -543,7 +552,10 @@ function setup_models(opt::Optimizer)
             ext_i = Cones.setup_auxiliary(cache, oa_model)
             append!(oa_vars, ext_i)
 
-            push!(opt.oa_cones, (K_relax_i, K_subp_i, cache, s_i, idxs))
+            push!(opt.relax_oa_cones, relax_cone_i)
+            push!(opt.subp_oa_cones, subp_cone_i)
+            push!(opt.cone_caches, cache)
+            push!(opt.oa_cone_idxs, idxs)
         end
     end
     @assert JuMP.num_variables(oa_model) == length(oa_vars)
@@ -558,7 +570,7 @@ function setup_models(opt::Optimizer)
         end
     end
 
-    isempty(opt.oa_cones) || return false
+    isempty(opt.cone_caches) || return false
     if opt.verbose
         println("no conic constraints need outer approximation")
     end
@@ -579,7 +591,7 @@ end
 
 # initial fixed cuts
 function add_init_cuts(opt::Optimizer)
-    for (_, _, cache, _, _) in opt.oa_cones
+    for cache in opt.cone_caches
         opt.num_cuts += Cones.add_init_cuts(cache, opt.oa_model)
     end
     return
@@ -590,7 +602,7 @@ function add_relax_cuts(opt::Optimizer)
     JuMP.has_duals(opt.relax_model) || return 0
 
     num_cuts_before = opt.num_cuts
-    for (ci, _, cache, _, _) in opt.oa_cones
+    for (ci, cache) in zip(opt.relax_oa_cones, opt.cone_caches)
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -622,7 +634,7 @@ function add_subp_cuts(
     JuMP.has_duals(opt.subp_model) || return false
 
     num_cuts_before = opt.num_cuts
-    for (_, ci, cache, _, _) in opt.oa_cones
+    for (ci, cache) in zip(opt.subp_oa_cones, opt.cone_caches)
         z = JuMP.dual(ci)
         z_norm = LinearAlgebra.norm(z, Inf)
         if z_norm < 1e-10 # TODO tune
@@ -649,10 +661,10 @@ end
 # separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    for (_, _, cache, _, _) in opt.oa_cones
+    for cache in opt.cone_caches
         Cones.load_s(cache, opt.lazy_cb)
     end
-    for (_, _, cache, _, _) in opt.oa_cones
+    for cache in opt.cone_caches
         cuts = Cones.get_sep_cuts(cache, opt.oa_model)
         add_cuts(cuts, opt)
     end
@@ -703,7 +715,7 @@ function get_oa_start(opt::Optimizer, x_start::Vector{Float64})
     oa_start[1:n] .= x_start
 
     s_start = opt.h - opt.G * x_start
-    for (_, _, cache, _, idxs) in opt.oa_cones
+    for (cache, idxs) in zip(opt.cone_caches, opt.oa_cone_idxs)
         s_start_i = s_start[idxs]
         dim = length(s_start_i)
         oa_start[n .+ (1:dim)] .= s_start_i
