@@ -16,7 +16,11 @@ const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 
 include("Cones/Cones.jl")
-include("optimize.jl")
+include("optimizer.jl")
+include("algorithms.jl")
+include("models.jl")
+include("cuts.jl")
+include("JuMP_tools.jl")
 include("MOI_wrapper.jl")
 
 end
