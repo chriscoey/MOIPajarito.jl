@@ -38,6 +38,9 @@ function run_cbf_tests(use_iter::Bool, oa_solver, conic_solver)
     folder = joinpath(@__DIR__, "CBF")
 
     @testset "$inst" for inst in insts
+        if !use_iter && inst == "exp_gatesizing"
+            continue # TODO failing
+        end
         println(inst)
         file = joinpath(folder, string(inst, ".cbf"))
         run_cbf(model, file)
@@ -61,8 +64,6 @@ function sssd_strong_15_4(model)
 end
 
 function exp_gatesizing(model)
-    # TODO one-tree method failing with GLPK
-    MOI.get(model, MOI.RawOptimizerAttribute("use_iterative_method")) || return
     TOL = 1e-4
     @test MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL
     @test isapprox(MOI.get(model, MOI.ObjectiveValue()), 8.33333, atol = TOL)

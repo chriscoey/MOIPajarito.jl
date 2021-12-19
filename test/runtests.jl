@@ -13,7 +13,7 @@ import MathOptInterface
 const MOI = MathOptInterface
 
 import GLPK
-oa_solver = MOI.OptimizerWithAttributes(
+glpk = MOI.OptimizerWithAttributes(
     GLPK.Optimizer,
     MOI.Silent() => true,
     "tol_int" => 1e-10,
@@ -39,18 +39,18 @@ Test.@testset "Pajarito tests" begin
     println("starting MOI tests")
     include("MOI_tests.jl")
     Test.@testset "MOI tests" begin
-        TestMOI.runtests(oa_solver, hypatia)
+        TestMOI.runtests(glpk, hypatia)
     end
 
     println("starting JuMP tests")
     include("JuMP_tests.jl")
     Test.@testset "JuMP tests" begin
-        TestJuMP.runtests(oa_solver, hypatia)
+        TestJuMP.runtests(glpk, hypatia)
     end
 
     println("starting CBF tests")
     include("CBF_tests.jl")
     Test.@testset "CBF tests" begin
-        TestCBF.runtests(oa_solver, hypatia)
+        TestCBF.runtests(glpk, hypatia)
     end
 end
