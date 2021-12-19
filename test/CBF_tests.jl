@@ -61,7 +61,7 @@ function sssd_strong_15_4(model)
 end
 
 function exp_gatesizing(model)
-    # TODO one-tree method failing with GLPK because it only does non-integral lazy callbacks?
+    # TODO one-tree method failing with GLPK
     MOI.get(model, MOI.RawOptimizerAttribute("use_iterative_method")) || return
     TOL = 1e-4
     @test MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL

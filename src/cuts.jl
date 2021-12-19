@@ -36,10 +36,7 @@ function add_relax_cuts(opt::Optimizer)
 end
 
 # add subproblem dual cuts
-function add_subp_cuts(
-    opt::Optimizer,
-    cuts_cache::Union{Nothing, Vector{JuMP.AffExpr}} = nothing,
-)
+function add_subp_cuts(opt::Optimizer, cuts_cache::Union{Nothing, Vector{AE}} = nothing)
     JuMP.has_duals(opt.subp_model) || return false
 
     num_cuts_before = opt.num_cuts

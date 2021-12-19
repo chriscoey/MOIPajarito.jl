@@ -9,26 +9,28 @@ equivalently (p < 0, q ≥ p * (log(r / -p) + 1))
 
 mutable struct ExponentialConeCache <: ConeCache
     cone::MOI.ExponentialCone
-    s_oa::Vector{VR}
+    oa_s::Vector{AE}
     s::Vector{Float64}
     ExponentialConeCache() = new()
 end
 
-function create_cache(s_oa::Vector{VR}, cone::MOI.ExponentialCone, ::Bool)
-    @assert length(s_oa) == 3
+function create_cache(oa_s::Vector{AE}, cone::MOI.ExponentialCone, ::Bool)
+    @assert length(oa_s) == 3
     cache = ExponentialConeCache()
     cache.cone = cone
-    cache.s_oa = s_oa
+    cache.oa_s = oa_s
     return cache
 end
 
 function add_init_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
-    (u, v, w) = cache.s_oa
+    (u, v, w) = cache.oa_s
     # add variable bounds and some separation cuts from linearizations at p = -1
-    JuMP.set_lower_bound(v, 0)
-    JuMP.set_lower_bound(w, 0)
     r_lin = [1e-3, 1e0, 1e2]
-    JuMP.@constraint(oa_model, [r in r_lin], -u - (log(r) + 1) * v + r * w >= 0)
+    JuMP.@constraints(oa_model, begin
+        v >= 0
+        w >= 0
+        [r in r_lin], -u - (log(r) + 1) * v + r * w >= 0
+    end)
     return 2 + length(r_lin)
 end
 
@@ -42,13 +44,13 @@ function get_subp_cuts(
     if p > 0 || r < 0
         # z ∉ K
         @warn("exponential cone dual vector violates variable bounds")
-        return JuMP.AffExpr[]
+        return AE[]
     end
     q = z[2]
-    (u, v, w) = cache.s_oa
+    (u, v, w) = cache.oa_s
 
     if p > -1e-12
-        return JuMP.AffExpr[]
+        return AE[]
     elseif r / -p > 1e-8
         # strengthened cut is (p, p * (log(r / -p) + 1), r)
         q = p * (log(r / -p) + 1)
@@ -58,7 +60,7 @@ function get_subp_cuts(
         r = -p * exp(q / p - 1)
         cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
     else
-        return JuMP.AffExpr[]
+        return AE[]
     end
     return [cut]
 end
@@ -68,7 +70,7 @@ function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
     if min(ws, vs) < 0
         error("exponential cone point violates variable lower bounds")
     end
-    (u, v, w) = cache.s_oa
+    (u, v, w) = cache.oa_s
 
     # check s ∉ K and add cut
     if vs <= 1e-7
@@ -83,7 +85,7 @@ function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
             q = -log(ℯ / 2 * r)
             cut = JuMP.@expression(oa_model, -u + q * v + r * w)
         else
-            return JuMP.AffExpr[]
+            return AE[]
         end
     elseif ws / vs > 1e-8 && us - vs * log(ws / vs) > 1e-7
         # vs and ws not near zero
@@ -96,7 +98,7 @@ function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
         q = (us - vs) / vs * p
         cut = JuMP.@expression(oa_model, p * u + q * v + w)
     else
-        return JuMP.AffExpr[]
+        return AE[]
     end
     return [cut]
 end

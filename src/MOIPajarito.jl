@@ -14,6 +14,7 @@ const VV = MOI.VectorOfVariables
 const VAF = MOI.VectorAffineFunction{Float64}
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
+const AE = JuMP.AffExpr
 
 include("Cones/Cones.jl")
 include("optimizer.jl")

@@ -6,6 +6,7 @@ import LinearAlgebra
 import JuMP
 const MOI = JuMP.MOI
 const VR = JuMP.VariableRef
+const AE = JuMP.AffExpr
 
 abstract type Extender end
 struct Unextended <: Extender end
@@ -37,9 +38,11 @@ setup_auxiliary(::ConeCache, ::JuMP.Model) = VR[]
 
 extend_start(::ConeCache, ::Vector{Float64}) = Float64[]
 
+num_ext_variables(::ConeCache) = 0
+
 function dot_expr(
     z::AbstractVecOrMat{Float64},
-    vars::AbstractVecOrMat{VR},
+    vars::AbstractVecOrMat{<:Union{VR, AE}},
     oa_model::JuMP.Model,
 )
     return JuMP.@expression(oa_model, JuMP.dot(z, vars))
@@ -58,12 +61,12 @@ function clean_array!(z::AbstractArray)
 end
 
 function load_s(cache::ConeCache, ::Nothing)
-    cache.s = JuMP.value.(cache.s_oa)
+    cache.s = JuMP.value.(cache.oa_s)
     return
 end
 
 function load_s(cache::ConeCache, cb::Any)
-    return cache.s = JuMP.callback_value.(cb, cache.s_oa)
+    return cache.s = JuMP.callback_value.(cb, cache.oa_s)
 end
 
 end

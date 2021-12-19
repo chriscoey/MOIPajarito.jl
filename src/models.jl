@@ -66,6 +66,7 @@ function setup_models(opt::Optimizer)
     opt.subp_oa_cones = CR[]
     opt.cone_caches = Cones.ConeCache[]
     opt.oa_cone_idxs = UnitRange{Int}[]
+    opt.oa_slack_idxs = UnitRange{Int}[]
 
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         relax_cone_i = JuMP.@constraint(relax_model, relax_aff[idxs] in cone)
@@ -84,13 +85,13 @@ function setup_models(opt::Optimizer)
         if oa_supports
             JuMP.@constraint(oa_model, oa_aff_i in cone)
         else
-            # TODO check if oa_aff_i is equal to a VV, in which case don't add slacks s_i
-            s_i = JuMP.@variable(oa_model, [1:length(idxs)])
-            append!(oa_vars, s_i)
-            JuMP.@constraint(oa_model, s_i .== oa_aff_i)
+            # add slack variables where useful and modify oa_aff_i
+            (slacks, slack_idxs) = create_slacks(oa_model, oa_aff_i)
+            append!(oa_vars, slacks)
+            push!(opt.oa_slack_idxs, idxs[slack_idxs])
 
             # set up cone cache and extended formulation
-            cache = Cones.create_cache(s_i, cone, opt.use_extended_form)
+            cache = Cones.create_cache(oa_aff_i, cone, opt.use_extended_form)
             ext_i = Cones.setup_auxiliary(cache, oa_model)
             append!(oa_vars, ext_i)
 
@@ -131,27 +132,52 @@ function setup_models(opt::Optimizer)
     return true
 end
 
+function create_slacks(model::JuMP.Model, expr_vec::Vector{AE})
+    slacks = VR[]
+    slack_idxs = Int[]
+    for (j, expr_j) in enumerate(expr_vec)
+        terms = JuMP.linear_terms(expr_j)
+        length(terms) <= 1 && continue
+
+        # affine expression has more than one variable, so add a slack variable
+        s_j = JuMP.@variable(model)
+        JuMP.@constraint(model, s_j .== expr_j)
+        expr_vec[j] = s_j
+        push!(slacks, s_j)
+        push!(slack_idxs, j)
+    end
+    return (slacks, slack_idxs)
+end
+
 function get_oa_start(opt::Optimizer, x_start::Vector{Float64})
     n = length(opt.incumbent)
     @assert length(x_start) == n
-
     oa_start = fill(NaN, length(opt.oa_vars))
-    fill!(oa_start, NaN)
     oa_start[1:n] .= x_start
 
     s_start = opt.h - opt.G * x_start
-    for (cache, idxs) in zip(opt.cone_caches, opt.oa_cone_idxs)
-        s_start_i = s_start[idxs]
-        dim = length(s_start_i)
-        oa_start[n .+ (1:dim)] .= s_start_i
-        n += dim
-        ext_start = Cones.extend_start(cache, s_start_i)
-        isempty(ext_start) && continue
-        ext_dim = length(ext_start)
-        oa_start[n .+ (1:ext_dim)] .= ext_start
-        n += ext_dim
+    for (i, cache) in enumerate(opt.cone_caches)
+        slack_idxs = opt.oa_slack_idxs[i]
+        if !isempty(slack_idxs)
+            # set slack variables start
+            slack_start = s_start[slack_idxs]
+            dim = length(slack_start)
+            oa_start[n .+ (1:dim)] .= slack_start
+            n += dim
+        end
+
+        ext_dim = Cones.num_ext_variables(cache)
+        if !iszero(ext_dim)
+            # set auxiliary variables start
+            s_start_i = s_start[opt.oa_cone_idxs[i]]
+            ext_start = Cones.extend_start(cache, s_start_i)
+            @assert ext_dim == length(ext_start)
+            oa_start[n .+ (1:ext_dim)] .= ext_start
+            n += ext_dim
+        end
     end
     @assert n == length(oa_start)
+
     @assert !any(isnan, oa_start)
     return oa_start
 end
