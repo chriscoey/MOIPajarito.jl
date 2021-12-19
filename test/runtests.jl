@@ -36,17 +36,17 @@ hypatia = MOI.OptimizerWithAttributes(
 
 println("starting Pajarito tests")
 Test.@testset "Pajarito tests" begin
-    println("starting MOI tests")
-    include("MOI_tests.jl")
-    Test.@testset "MOI tests" begin
-        TestMOI.runtests(glpk, hypatia)
-    end
+    # println("starting MOI tests")
+    # include("MOI_tests.jl")
+    # Test.@testset "MOI tests" begin
+    #     TestMOI.runtests(glpk, hypatia)
+    # end
 
-    println("starting JuMP tests")
-    include("JuMP_tests.jl")
-    Test.@testset "JuMP tests" begin
-        TestJuMP.runtests(glpk, hypatia)
-    end
+    # println("starting JuMP tests")
+    # include("JuMP_tests.jl")
+    # Test.@testset "JuMP tests" begin
+    #     TestJuMP.runtests(glpk, hypatia)
+    # end
 
     println("starting CBF tests")
     include("CBF_tests.jl")
