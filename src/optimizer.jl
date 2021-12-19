@@ -48,11 +48,12 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     subp_oa_cones::Vector{CR}
     cone_caches::Vector{Cones.ConeCache}
     oa_cone_idxs::Vector{UnitRange{Int}}
+    oa_slack_idxs::Vector{Vector{Int}}
 
     # used/modified during optimize
     lazy_cb::Any
     new_incumbent::Bool
-    int_sols_cuts::Dict{UInt, Vector{JuMP.AffExpr}}
+    int_sols_cuts::Dict{UInt, Vector{AE}}
     use_oa_starts::Bool
 
     # used by MOI wrapper
@@ -107,7 +108,7 @@ function empty_optimize(opt::Optimizer)
     opt.num_heuristic_cbs = 0
     opt.lazy_cb = nothing
     opt.new_incumbent = false
-    opt.int_sols_cuts = Dict{UInt, Vector{JuMP.AffExpr}}()
+    opt.int_sols_cuts = Dict{UInt, Vector{AE}}()
 
     if !isnothing(opt.oa_opt)
         MOI.empty!(opt.oa_opt)
@@ -124,6 +125,7 @@ function get_oa_opt(opt::Optimizer)
             error("No outer approximation solver specified (set `oa_solver`)")
         end
         opt.oa_opt = MOI.instantiate(opt.oa_solver, with_bridge_type = Float64)
+
         # check whether lazy constraints are supported
         supports_lazy = MOI.supports(opt.oa_opt, MOI.LazyConstraintCallback())
         if isnothing(opt.use_iterative_method)

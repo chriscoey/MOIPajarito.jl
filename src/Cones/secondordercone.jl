@@ -9,21 +9,21 @@ linear and 3-dim rotated second order cone constraints
 
 mutable struct SecondOrderConeCache{E <: Extender} <: ConeCache
     cone::MOI.SecondOrderCone
-    s_oa::Vector{VR}
+    oa_s::Vector{AE}
     s::Vector{Float64}
     d::Int
     ϕ::Vector{VR}
     SecondOrderConeCache{E}() where {E <: Extender} = new{E}()
 end
 
-function create_cache(s_oa::Vector{VR}, cone::MOI.SecondOrderCone, extend::Bool)
+function create_cache(oa_s::Vector{AE}, cone::MOI.SecondOrderCone, extend::Bool)
     dim = MOI.dimension(cone)
-    @assert dim == length(s_oa)
+    @assert dim == length(oa_s)
     d = dim - 1
     E = extender(extend, d)
     cache = SecondOrderConeCache{E}()
     cache.cone = cone
-    cache.s_oa = s_oa
+    cache.oa_s = oa_s
     cache.d = d
     return cache
 end
@@ -43,7 +43,7 @@ function get_sep_cuts(cache::SecondOrderConeCache, oa_model::JuMP.Model)
     ws_norm = LinearAlgebra.norm(ws)
     # check s ∉ K
     if us - ws_norm > -1e-7 # TODO option
-        return JuMP.AffExpr[]
+        return AE[]
     end
 
     # cut is (1, -ws / ‖ws‖)
@@ -54,14 +54,14 @@ end
 # unextended formulation
 
 function add_init_cuts(cache::SecondOrderConeCache{Unextended}, oa_model::JuMP.Model)
-    u = cache.s_oa[1]
-    @views w = cache.s_oa[2:end] # TODO cache?
+    u = cache.oa_s[1]
+    @views w = cache.oa_s[2:end] # TODO cache?
     d = cache.d
     # u ≥ 0, u ≥ |wᵢ|
-    JuMP.set_lower_bound(u, 0)
     JuMP.@constraints(oa_model, begin
-        [i in 1:d], u ≥ w[i]
-        [i in 1:d], u ≥ -w[i]
+        u >= 0
+        [i in 1:d], u >= w[i]
+        [i in 1:d], u >= -w[i]
     end)
     return 1 + 2d
 end
@@ -72,15 +72,17 @@ function _get_cuts(
     oa_model::JuMP.Model,
 )
     # strengthened cut is (‖r‖, r)
-    clean_array!(r) && return JuMP.AffExpr[]
+    clean_array!(r) && return AE[]
     p = LinearAlgebra.norm(r)
-    u = cache.s_oa[1]
-    @views w = cache.s_oa[2:end]
+    u = cache.oa_s[1]
+    @views w = cache.oa_s[2:end]
     cut = JuMP.@expression(oa_model, p * u + JuMP.dot(r, w))
     return [cut]
 end
 
 # extended formulation
+
+num_ext_variables(cache::SecondOrderConeCache{Extended}) = cache.d
 
 function extend_start(cache::SecondOrderConeCache{Extended}, s_start::Vector{Float64})
     u_start = s_start[1]
@@ -93,23 +95,24 @@ function extend_start(cache::SecondOrderConeCache{Extended}, s_start::Vector{Flo
 end
 
 function setup_auxiliary(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
+    @assert cache.d >= 2
     ϕ = cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
-    u = cache.s_oa[1]
-    JuMP.@constraint(oa_model, u ≥ 2 * sum(ϕ))
+    u = cache.oa_s[1]
+    JuMP.@constraint(oa_model, u >= 2 * sum(ϕ))
     return ϕ
 end
 
 function add_init_cuts(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
-    u = cache.s_oa[1]
-    @views w = cache.s_oa[2:end]
+    u = cache.oa_s[1]
+    @views w = cache.oa_s[2:end]
     d = cache.d
     ϕ = cache.ϕ
     # u ≥ 0, u ≥ |wᵢ|
     # disaggregated cut on (u, ϕᵢ, wᵢ) is (1, 2, ±2)
-    JuMP.set_lower_bound(u, 0)
     JuMP.@constraints(oa_model, begin
-        [i in 1:d], u + 2 * ϕ[i] + 2 * w[i] ≥ 0
-        [i in 1:d], u + 2 * ϕ[i] - 2 * w[i] ≥ 0
+        u >= 0
+        [i in 1:d], u + 2 * ϕ[i] + 2 * w[i] >= 0
+        [i in 1:d], u + 2 * ϕ[i] - 2 * w[i] >= 0
     end)
     return 1 + 2d
 end
@@ -119,12 +122,12 @@ function _get_cuts(
     cache::SecondOrderConeCache{Extended},
     oa_model::JuMP.Model,
 )
-    clean_array!(r) && return JuMP.AffExpr[]
+    clean_array!(r) && return AE[]
     p = LinearAlgebra.norm(r)
-    u = cache.s_oa[1]
-    @views w = cache.s_oa[2:end]
+    u = cache.oa_s[1]
+    @views w = cache.oa_s[2:end]
     ϕ = cache.ϕ
-    cuts = JuMP.AffExpr[]
+    cuts = AE[]
     for i in 1:(cache.d)
         r_i = r[i]
         iszero(r_i) && continue

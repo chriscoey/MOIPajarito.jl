@@ -75,7 +75,7 @@ function run_iterative_method(opt::Optimizer)
         @warn("integral solution repeated")
     else
         # new integral solution: solve subproblem and add cuts
-        opt.int_sols_cuts[hash_int_sol] = JuMP.AffExpr[]
+        opt.int_sols_cuts[hash_int_sol] = AE[]
         subp_failed = solve_subproblem(int_sol, opt)
         if !subp_failed
             subp_cuts_added = add_subp_cuts(opt)
@@ -172,7 +172,7 @@ function run_one_tree_method(opt::Optimizer)
         else
             # new integral solution: solve subproblem, cache cuts, and add cuts
             subp_failed = solve_subproblem(int_sol, opt)
-            cuts_cache = opt.int_sols_cuts[hash_int_sol] = JuMP.AffExpr[]
+            cuts_cache = opt.int_sols_cuts[hash_int_sol] = AE[]
             if !subp_failed
                 subp_cuts_added = add_subp_cuts(opt, cuts_cache)
             end

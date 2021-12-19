@@ -1,22 +1,22 @@
 # tools for JuMP functions
 
-function add_cuts(cuts::Vector{JuMP.AffExpr}, opt::Optimizer)
+function add_cuts(cuts::Vector{AE}, opt::Optimizer)
     for cut in cuts
         opt.num_cuts += add_cut(cut, opt)
     end
     return
 end
 
-function add_cut(cut::JuMP.AffExpr, opt::Optimizer)
+function add_cut(cut::AE, opt::Optimizer)
     return _add_cut(cut, opt.oa_model, opt.tol_feas, opt.lazy_cb)
 end
 
-function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, ::Float64, ::Nothing)
+function _add_cut(cut::AE, model::JuMP.Model, ::Float64, ::Nothing)
     JuMP.@constraint(model, cut >= 0)
     return 1
 end
 
-function _add_cut(cut::JuMP.AffExpr, model::JuMP.Model, tol_feas::Float64, cb)
+function _add_cut(cut::AE, model::JuMP.Model, tol_feas::Float64, cb)
     # only add cut if violated (per JuMP documentation)
     if JuMP.callback_value(cb, cut) < -tol_feas
         con = JuMP.@build_constraint(cut >= 0)

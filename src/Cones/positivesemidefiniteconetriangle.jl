@@ -5,19 +5,19 @@ w ⪰ 0
 
 mutable struct PosSemiDefConeCache <: ConeCache
     cone::MOI.PositiveSemidefiniteConeTriangle
-    s_oa::Vector{VR}
+    oa_s::Vector{AE}
     s::Vector{Float64}
     d::Int
-    W::Matrix{VR}
+    W::Matrix{<:Union{VR, AE}}
     PosSemiDefConeCache() = new()
 end
 
-function create_cache(s_oa::Vector{VR}, cone::MOI.PositiveSemidefiniteConeTriangle, ::Bool)
+function create_cache(oa_s::Vector{AE}, cone::MOI.PositiveSemidefiniteConeTriangle, ::Bool)
     cache = PosSemiDefConeCache()
     cache.cone = cone
-    cache.s_oa = s_oa
+    cache.oa_s = oa_s
     cache.d = cone.side_dimension
-    cache.W = vec_to_symm(cache.d, s_oa)
+    cache.W = vec_to_symm(cache.d, oa_s)
     return cache
 end
 
@@ -27,12 +27,10 @@ function add_init_cuts(cache::PosSemiDefConeCache, oa_model::JuMP.Model)
     # initial OA polyhedron is the dual cone of diagonally dominant matrices
     d = cache.d
     W = cache.W
-    for i in 1:d
-        JuMP.set_lower_bound(W[i, i], 0)
-    end
     JuMP.@constraints(
         oa_model,
         begin
+            [i in 1:d], W[i, i] >= 0
             [j in 1:d, i in 1:(j - 1)], W[i, i] + W[j, j] + 2 * W[i, j] >= 0
             [j in 1:d, i in 1:(j - 1)], W[i, i] + W[j, j] - 2 * W[i, j] >= 0
         end
@@ -44,7 +42,7 @@ function get_subp_cuts(z::Vector{Float64}, cache::PosSemiDefConeCache, oa_model:
     # strengthened cuts from eigendecomposition are λᵢ * rᵢ * rᵢ'
     R = vec_to_symm(cache.d, z)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-10, Inf) # TODO tune
-    isempty(F.values) && return JuMP.AffExpr[]
+    isempty(F.values) && return AE[]
     R_eig = F.vectors * LinearAlgebra.Diagonal(sqrt.(F.values))
     return _get_cuts(R_eig, cache, oa_model)
 end
@@ -53,14 +51,14 @@ function get_sep_cuts(cache::PosSemiDefConeCache, oa_model::JuMP.Model)
     # check s ∉ K
     sW = vec_to_symm(cache.d, cache.s)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(sW, :U), -Inf, -1e-7)
-    isempty(F.values) && return JuMP.AffExpr[]
+    isempty(F.values) && return AE[]
     return _get_cuts(F.vectors, cache, oa_model)
 end
 
 function _get_cuts(R_eig::Matrix{Float64}, cache::PosSemiDefConeCache, oa_model::JuMP.Model)
     # cuts from eigendecomposition are rᵢ * rᵢ'
     W = cache.W
-    cuts = JuMP.AffExpr[]
+    cuts = AE[]
     for i in size(R_eig, 2)
         @views r_i = R_eig[:, i]
         R_i = r_i * r_i'
