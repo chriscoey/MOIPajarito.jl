@@ -6,7 +6,6 @@ using Test
 import LinearAlgebra
 import MathOptInterface
 const MOI = MathOptInterface
-const MOIU = MOI.Utilities
 import JuMP
 import MOIPajarito
 

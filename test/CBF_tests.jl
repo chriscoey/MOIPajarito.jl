@@ -5,7 +5,6 @@ module TestCBF
 using Test
 import MathOptInterface
 const MOI = MathOptInterface
-const MOIU = MOI.Utilities
 const MOIFF = MOI.FileFormats
 import MOIPajarito
 
