@@ -3,17 +3,17 @@ positive semidefinite cone triangle (unscaled)
 w ⪰ 0
 =#
 
-mutable struct PosSemiDefConeCache <: ConeCache
+mutable struct PositiveSemidefiniteConeTriangleCache <: ConeCache
     cone::MOI.PositiveSemidefiniteConeTriangle
     oa_s::Vector{AE}
     s::Vector{Float64}
     d::Int
     W::Matrix{<:Union{VR, AE}}
-    PosSemiDefConeCache() = new()
+    PositiveSemidefiniteConeTriangleCache() = new()
 end
 
 function create_cache(oa_s::Vector{AE}, cone::MOI.PositiveSemidefiniteConeTriangle, ::Bool)
-    cache = PosSemiDefConeCache()
+    cache = PositiveSemidefiniteConeTriangleCache()
     cache.cone = cone
     cache.oa_s = oa_s
     cache.d = cone.side_dimension
@@ -21,9 +21,10 @@ function create_cache(oa_s::Vector{AE}, cone::MOI.PositiveSemidefiniteConeTriang
     return cache
 end
 
-function add_init_cuts(cache::PosSemiDefConeCache, oa_model::JuMP.Model)
+function add_init_cuts(cache::PositiveSemidefiniteConeTriangleCache, oa_model::JuMP.Model)
     # cuts enforce W_ii ≥ 0, ∀i
-    # cuts on (W_ii, W_jj, W_ij) are (1, 1, ±2), ∀i ≂̸ j (a linearization of W_ii * W_jj ≥ W_ij^2)
+    # cuts on (W_ii, W_jj, W_ij) are (1, 1, ±2), ∀i != j
+    # (a linearization of W_ii * W_jj ≥ W_ij^2)
     # initial OA polyhedron is the dual cone of diagonally dominant matrices
     d = cache.d
     W = cache.W
@@ -38,7 +39,11 @@ function add_init_cuts(cache::PosSemiDefConeCache, oa_model::JuMP.Model)
     return d^2
 end
 
-function get_subp_cuts(z::Vector{Float64}, cache::PosSemiDefConeCache, oa_model::JuMP.Model)
+function get_subp_cuts(
+    z::Vector{Float64},
+    cache::PositiveSemidefiniteConeTriangleCache,
+    oa_model::JuMP.Model,
+)
     # strengthened cuts from eigendecomposition are λᵢ * rᵢ * rᵢ'
     R = vec_to_symm(cache.d, z)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-10, Inf) # TODO tune
@@ -47,7 +52,7 @@ function get_subp_cuts(z::Vector{Float64}, cache::PosSemiDefConeCache, oa_model:
     return _get_cuts(R_eig, cache, oa_model)
 end
 
-function get_sep_cuts(cache::PosSemiDefConeCache, oa_model::JuMP.Model)
+function get_sep_cuts(cache::PositiveSemidefiniteConeTriangleCache, oa_model::JuMP.Model)
     # check s ∉ K
     sW = vec_to_symm(cache.d, cache.s)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(sW, :U), -Inf, -1e-7)
@@ -55,7 +60,11 @@ function get_sep_cuts(cache::PosSemiDefConeCache, oa_model::JuMP.Model)
     return _get_cuts(F.vectors, cache, oa_model)
 end
 
-function _get_cuts(R_eig::Matrix{Float64}, cache::PosSemiDefConeCache, oa_model::JuMP.Model)
+function _get_cuts(
+    R_eig::Matrix{Float64},
+    cache::PositiveSemidefiniteConeTriangleCache,
+    oa_model::JuMP.Model,
+)
     # cuts from eigendecomposition are rᵢ * rᵢ'
     W = cache.W
     cuts = AE[]
