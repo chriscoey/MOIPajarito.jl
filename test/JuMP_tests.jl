@@ -314,6 +314,8 @@ function _psd2(opt)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL
     @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
+    @test isapprox(JuMP.objective_value(m), mat[d, d], atol = TOL)
+    @test isapprox(JuMP.objective_bound(m), mat[d, d], atol = TOL)
     X_val = JuMP.value.(X)
     @test isapprox(sum(X_val), 1, atol = TOL)
     @test isapprox(X_val[d, d], 1, atol = TOL)

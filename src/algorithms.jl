@@ -204,11 +204,22 @@ function run_one_tree_method(opt::Optimizer)
     time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true
     JuMP.optimize!(oa_model)
+    opt.lazy_cb = nothing
 
     oa_status = JuMP.termination_status(oa_model)
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
         opt.obj_bound = get_objective_bound(oa_model)
+        if !isfinite(opt.obj_value)
+            # use OA solver solution if feasible
+            cuts_added = add_sep_cuts(opt)
+            if cuts_added
+                error("OA solver solution is not feasible")
+            else
+                # update incumbent from OA solver
+                update_incumbent_from_OA(opt)
+            end
+        end
     elseif oa_status == MOI.INFEASIBLE
         opt.status = oa_status
     elseif oa_status == MOI.TIME_LIMIT
