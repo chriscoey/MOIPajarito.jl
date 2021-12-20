@@ -68,7 +68,7 @@ function _get_cuts(
     # cuts from eigendecomposition are rᵢ * rᵢ'
     W = cache.W
     cuts = AE[]
-    for i in size(R_eig, 2)
+    for i in 1:size(R_eig, 2)
         @views r_i = R_eig[:, i]
         R_i = r_i * r_i'
         clean_array!(R_i) && continue
