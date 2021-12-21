@@ -210,15 +210,11 @@ function run_one_tree_method(opt::Optimizer)
     if oa_status == MOI.OPTIMAL
         opt.status = oa_status
         opt.obj_bound = get_objective_bound(oa_model)
+
         if !isfinite(opt.obj_value)
-            # use OA solver solution if feasible
-            cuts_added = add_sep_cuts(opt)
-            if cuts_added
-                error("OA solver solution is not feasible")
-            else
-                # update incumbent from OA solver
-                update_incumbent_from_OA(opt)
-            end
+            # use OA solver solution TODO should check feasibility
+            @warn("taking OA solver solution, which may be infeasible")
+            update_incumbent_from_OA(opt)
         end
     elseif oa_status == MOI.INFEASIBLE
         opt.status = oa_status
@@ -272,14 +268,14 @@ function solve_relaxation(opt::Optimizer)
     finish = false
 
     # check whether problem is continuous
-    if iszero(opt.num_int_vars)
+    if !opt.debug_cuts && iszero(opt.num_int_vars)
         if opt.verbose
             println("problem is continuous; terminating")
         end
         finish = true
     end
 
-    if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
+    if !opt.debug_cuts && relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
         # check whether conic relaxation solution is integral
         int_sol = JuMP.value.(opt.relax_x[1:(opt.num_int_vars)])
         round_int_sol = round.(Int, int_sol)
@@ -378,6 +374,10 @@ end
 
 # initialize and print
 function start_optimize(opt::Optimizer)
+    if opt.debug_cuts && !opt.use_iterative_method
+        # cannot do lazy callbacks if no integer variables
+        error("can only use debug_cuts = true with use_iterative_method = true")
+    end
     get_conic_opt(opt)
     get_oa_opt(opt)
     empty_optimize(opt)

@@ -13,9 +13,9 @@ function runtests(oa_solver, conic_solver)
     @testset "iterative method" begin
         run_jump_tests(true, oa_solver, conic_solver)
     end
-    @testset "one tree method" begin
-        run_jump_tests(false, oa_solver, conic_solver)
-    end
+    # @testset "one tree method" begin
+    #     run_jump_tests(false, oa_solver, conic_solver)
+    # end
     return
 end
 
@@ -25,12 +25,14 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "verbose" => true,
         # "verbose" => false,
         "use_iterative_method" => use_iter,
+        "debug_cuts" => use_iter, # debug cuts if using iterative method
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,
         # "time_limit" => 120.0,
     )
-    insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
+    # insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
+    insts = [_exp1, _pow1, _psd2]
     @testset "$inst" for inst in insts
         println(inst)
         inst(opt)
