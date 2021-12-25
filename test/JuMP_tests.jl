@@ -25,6 +25,7 @@ function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
         "verbose" => true,
         # "verbose" => false,
         "use_iterative_method" => use_iter,
+        # "debug_cuts" => use_iter, # debug cuts if using iterative method
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,

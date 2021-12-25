@@ -12,6 +12,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     use_extended_form::Bool
     oa_solver::Union{Nothing, MOI.OptimizerWithAttributes}
     conic_solver::Union{Nothing, MOI.OptimizerWithAttributes}
+    debug_cuts::Bool
 
     # optimizers
     oa_opt::Union{Nothing, MOI.AbstractOptimizer}
@@ -77,6 +78,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         iteration_limit::Int = 1000,
         use_iterative_method::Union{Nothing, Bool} = nothing,
         use_extended_form::Bool = true,
+        debug_cuts::Bool = false,
         oa_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
         conic_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
     )
@@ -91,6 +93,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.use_extended_form = use_extended_form
         opt.oa_solver = oa_solver
         opt.conic_solver = conic_solver
+        opt.debug_cuts = debug_cuts
         opt.oa_opt = nothing
         opt.conic_opt = nothing
         return empty_optimize(opt)

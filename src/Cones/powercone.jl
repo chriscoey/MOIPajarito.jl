@@ -70,7 +70,7 @@ function get_sep_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
     # perturb point if u or v is near zero
     us = max(us, 1e-8)
     vs = max(vs, 1e-8)
-    (u, v, w) = s_vars
+    (u, v, w) = cache.oa_s
     p = t * (us / vs)^(t - 1)
     q = (1 - t) * (us / vs)^t
     cut = JuMP.@expression(oa_model, p * u + q * v - sign(ws) * w)
