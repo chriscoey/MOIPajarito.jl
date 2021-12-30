@@ -8,18 +8,18 @@ const MOI = JuMP.MOI
 const VR = JuMP.VariableRef
 const AE = JuMP.AffExpr
 
-abstract type Extender end
-struct Unextended <: Extender end
-struct Extended <: Extender end
+abstract type NatExt end
+struct Nat <: NatExt end
+struct Ext <: NatExt end
 
 function extender(extend::Bool, d::Int)
     if d <= 1 || !extend
-        return Unextended
+        return Nat
     end
-    return Extended
+    return Ext
 end
 
-abstract type ConeCache end
+abstract type Cone end
 
 include("secondordercone.jl")
 include("exponentialcone.jl")
@@ -34,11 +34,11 @@ const OACone = Union{
     MOI.PositiveSemidefiniteConeTriangle,
 }
 
-setup_auxiliary(::ConeCache, ::JuMP.Model) = VR[]
+setup_auxiliary(::Cone, ::JuMP.Model) = VR[]
 
-extend_start(::ConeCache, ::Vector{Float64}) = Float64[]
+extend_start(::Cone, ::Vector{Float64}) = Float64[]
 
-num_ext_variables(::ConeCache) = 0
+num_ext_variables(::Cone) = 0
 
 function dot_expr(
     z::AbstractVecOrMat{Float64},
@@ -60,12 +60,12 @@ function clean_array!(z::AbstractArray)
     return iszero(z)
 end
 
-function load_s(cache::ConeCache, ::Nothing)
+function load_s(cache::Cone, ::Nothing)
     cache.s = JuMP.value.(cache.oa_s)
     return
 end
 
-function load_s(cache::ConeCache, cb::Any)
+function load_s(cache::Cone, cb::Any)
     return cache.s = JuMP.callback_value.(cb, cache.oa_s)
 end
 

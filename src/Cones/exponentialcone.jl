@@ -7,22 +7,20 @@ dual cone
 equivalently (p < 0, q ≥ p * (log(r / -p) + 1))
 =#
 
-mutable struct ExponentialConeCache <: ConeCache
-    cone::MOI.ExponentialCone
+mutable struct ExponentialCone <: Cone
     oa_s::Vector{AE}
     s::Vector{Float64}
-    ExponentialConeCache() = new()
+    ExponentialCone() = new()
 end
 
-function create_cache(oa_s::Vector{AE}, cone::MOI.ExponentialCone, ::Bool)
+function create_cache(oa_s::Vector{AE}, ::MOI.ExponentialCone, ::Bool)
     @assert length(oa_s) == 3
-    cache = ExponentialConeCache()
-    cache.cone = cone
+    cache = ExponentialCone()
     cache.oa_s = oa_s
     return cache
 end
 
-function add_init_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
+function add_init_cuts(cache::ExponentialCone, oa_model::JuMP.Model)
     (u, v, w) = cache.oa_s
     # add variable bounds and some separation cuts from linearizations at p = -1
     r_lin = [1e-3, 1e0, 1e2]
@@ -34,11 +32,7 @@ function add_init_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
     return 2 + length(r_lin)
 end
 
-function get_subp_cuts(
-    z::Vector{Float64},
-    cache::ExponentialConeCache,
-    oa_model::JuMP.Model,
-)
+function get_subp_cuts(z::Vector{Float64}, cache::ExponentialCone, oa_model::JuMP.Model)
     p = z[1]
     r = z[3]
     if p > 0 || r < 0
@@ -65,7 +59,7 @@ function get_subp_cuts(
     return [cut]
 end
 
-function get_sep_cuts(cache::ExponentialConeCache, oa_model::JuMP.Model)
+function get_sep_cuts(cache::ExponentialCone, oa_model::JuMP.Model)
     (us, vs, ws) = cache.s
     if min(ws, vs) < 0
         error("exponential cone point violates variable lower bounds")

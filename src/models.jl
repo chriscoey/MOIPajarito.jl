@@ -64,7 +64,7 @@ function setup_models(opt::Optimizer)
     opt.subp_cone_idxs = UnitRange{Int}[]
     opt.relax_oa_cones = CR[]
     opt.subp_oa_cones = CR[]
-    opt.cone_caches = Cones.ConeCache[]
+    opt.cone_caches = Cones.Cone[]
     opt.oa_cone_idxs = UnitRange{Int}[]
     opt.oa_slack_idxs = UnitRange{Int}[]
 
