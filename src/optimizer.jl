@@ -47,7 +47,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_vars::Vector{VR}
     relax_oa_cones::Vector{CR}
     subp_oa_cones::Vector{CR}
-    cone_caches::Vector{Cones.ConeCache}
+    cone_caches::Vector{Cones.Cone}
     oa_cone_idxs::Vector{UnitRange{Int}}
     oa_slack_idxs::Vector{Vector{Int}}
 

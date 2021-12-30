@@ -7,37 +7,29 @@ extended formulation
 linear and 3-dim rotated second order cone constraints
 =#
 
-mutable struct SecondOrderConeCache{E <: Extender} <: ConeCache
-    cone::MOI.SecondOrderCone
+mutable struct SecondOrderCone{E <: NatExt} <: Cone
     oa_s::Vector{AE}
-    s::Vector{Float64}
     d::Int
     ϕ::Vector{VR}
-    SecondOrderConeCache{E}() where {E <: Extender} = new{E}()
+    SecondOrderCone{E}() where {E <: NatExt} = new{E}()
 end
 
-function create_cache(oa_s::Vector{AE}, cone::MOI.SecondOrderCone, extend::Bool)
-    dim = MOI.dimension(cone)
+function create_cache(oa_s::Vector{AE}, moi_cone::MOI.SecondOrderCone, extend::Bool)
+    dim = MOI.dimension(moi_cone)
     @assert dim == length(oa_s)
     d = dim - 1
-    E = extender(extend, d)
-    cache = SecondOrderConeCache{E}()
-    cache.cone = cone
+    E = nat_or_ext(extend, d)
+    cache = SecondOrderCone{E}()
     cache.oa_s = oa_s
     cache.d = d
     return cache
 end
 
-function get_subp_cuts(
-    z::Vector{Float64},
-    cache::SecondOrderConeCache,
-    oa_model::JuMP.Model,
-)
+function get_subp_cuts(z::Vector{Float64}, cache::SecondOrderCone, oa_model::JuMP.Model)
     return _get_cuts(z[2:end], cache, oa_model)
 end
 
-function get_sep_cuts(cache::SecondOrderConeCache, oa_model::JuMP.Model)
-    s = cache.s
+function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, oa_model::JuMP.Model)
     us = s[1]
     @views ws = s[2:end]
     ws_norm = LinearAlgebra.norm(ws)
@@ -53,7 +45,7 @@ end
 
 # unextended formulation
 
-function add_init_cuts(cache::SecondOrderConeCache{Unextended}, oa_model::JuMP.Model)
+function add_init_cuts(cache::SecondOrderCone{Nat}, oa_model::JuMP.Model)
     u = cache.oa_s[1]
     @views w = cache.oa_s[2:end] # TODO cache?
     d = cache.d
@@ -66,11 +58,7 @@ function add_init_cuts(cache::SecondOrderConeCache{Unextended}, oa_model::JuMP.M
     return 1 + 2d
 end
 
-function _get_cuts(
-    r::Vector{Float64},
-    cache::SecondOrderConeCache{Unextended},
-    oa_model::JuMP.Model,
-)
+function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Nat}, oa_model::JuMP.Model)
     # strengthened cut is (‖r‖, r)
     clean_array!(r) && return AE[]
     p = LinearAlgebra.norm(r)
@@ -82,9 +70,9 @@ end
 
 # extended formulation
 
-num_ext_variables(cache::SecondOrderConeCache{Extended}) = cache.d
+num_ext_variables(cache::SecondOrderCone{Ext}) = cache.d
 
-function extend_start(cache::SecondOrderConeCache{Extended}, s_start::Vector{Float64})
+function extend_start(cache::SecondOrderCone{Ext}, s_start::Vector{Float64})
     u_start = s_start[1]
     w_start = s_start[2:end]
     @assert u_start - LinearAlgebra.norm(w_start) >= -1e-7 # TODO
@@ -94,7 +82,7 @@ function extend_start(cache::SecondOrderConeCache{Extended}, s_start::Vector{Flo
     return [w_i / 2u_start * w_i for w_i in w_start]
 end
 
-function setup_auxiliary(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
+function setup_auxiliary(cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
     @assert cache.d >= 2
     ϕ = cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
     u = cache.oa_s[1]
@@ -102,7 +90,7 @@ function setup_auxiliary(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.M
     return ϕ
 end
 
-function add_init_cuts(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Model)
+function add_init_cuts(cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
     u = cache.oa_s[1]
     @views w = cache.oa_s[2:end]
     d = cache.d
@@ -117,11 +105,7 @@ function add_init_cuts(cache::SecondOrderConeCache{Extended}, oa_model::JuMP.Mod
     return 1 + 2d
 end
 
-function _get_cuts(
-    r::Vector{Float64},
-    cache::SecondOrderConeCache{Extended},
-    oa_model::JuMP.Model,
-)
+function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
     clean_array!(r) && return AE[]
     p = LinearAlgebra.norm(r)
     u = cache.oa_s[1]

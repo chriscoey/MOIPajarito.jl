@@ -361,7 +361,7 @@ end
 
 function get_integral_solution(opt::Optimizer)
     x_int = opt.oa_x[1:(opt.num_int_vars)]
-    int_sol = get_value.(x_int, opt.lazy_cb)
+    int_sol = get_value(x_int, opt.lazy_cb)
 
     # check solution is integral
     round_int_sol = round.(Int, int_sol)

@@ -7,24 +7,21 @@ dual cone
 equivalently (q > 0, p ≥ t / (1-t) * q * |(1-t) * r / q|^(1/t))
 =#
 
-mutable struct PowerConeCache <: ConeCache
-    cone::MOI.PowerCone
+mutable struct PowerCone <: Cone
     t::Real
     oa_s::Vector{AE}
-    s::Vector{Float64}
-    PowerConeCache() = new()
+    PowerCone() = new()
 end
 
-function create_cache(oa_s::Vector{AE}, cone::MOI.PowerCone, ::Bool)
+function create_cache(oa_s::Vector{AE}, moi_cone::MOI.PowerCone, ::Bool)
     @assert length(oa_s) == 3
-    cache = PowerConeCache()
-    cache.cone = cone
-    cache.t = cone.exponent
+    cache = PowerCone()
+    cache.t = moi_cone.exponent
     cache.oa_s = oa_s
     return cache
 end
 
-function add_init_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
+function add_init_cuts(cache::PowerCone, oa_model::JuMP.Model)
     (u, v, w) = cache.oa_s
     t = cache.t
     # add variable bounds and cuts (t, 1-t, ±1)
@@ -37,7 +34,7 @@ function add_init_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
     return 4
 end
 
-function get_subp_cuts(z::Vector{Float64}, cache::PowerConeCache, oa_model::JuMP.Model)
+function get_subp_cuts(z::Vector{Float64}, cache::PowerCone, oa_model::JuMP.Model)
     p = z[1]
     q = z[2]
     if min(p, q) < 0
@@ -54,8 +51,8 @@ function get_subp_cuts(z::Vector{Float64}, cache::PowerConeCache, oa_model::JuMP
     return [cut]
 end
 
-function get_sep_cuts(cache::PowerConeCache, oa_model::JuMP.Model)
-    (us, vs, ws) = cache.s
+function get_sep_cuts(s::Vector{Float64}, cache::PowerCone, oa_model::JuMP.Model)
+    (us, vs, ws) = s
     if min(us, vs) < 0
         error("power cone point violates variable lower bounds")
     end

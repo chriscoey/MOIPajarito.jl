@@ -67,11 +67,10 @@ end
 # add separation cuts
 function add_sep_cuts(opt::Optimizer)
     num_cuts_before = opt.num_cuts
-    for cache in opt.cone_caches
-        Cones.load_s(cache, opt.lazy_cb)
-    end
-    for cache in opt.cone_caches
-        cuts = Cones.get_sep_cuts(cache, opt.oa_model)
+
+    s_vals = [get_value(Cones.get_oa_s(cache), opt.lazy_cb) for cache in opt.cone_caches]
+    for (s, cache) in zip(s_vals, opt.cone_caches)
+        cuts = Cones.get_sep_cuts(s, cache, opt.oa_model)
         add_cuts(cuts, opt)
     end
 
