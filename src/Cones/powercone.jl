@@ -10,7 +10,6 @@ equivalently (q > 0, p ≥ t / (1-t) * q * |(1-t) * r / q|^(1/t))
 mutable struct PowerCone <: Cone
     t::Real
     oa_s::Vector{AE}
-    s::Vector{Float64}
     PowerCone() = new()
 end
 
@@ -52,8 +51,8 @@ function get_subp_cuts(z::Vector{Float64}, cache::PowerCone, oa_model::JuMP.Mode
     return [cut]
 end
 
-function get_sep_cuts(cache::PowerCone, oa_model::JuMP.Model)
-    (us, vs, ws) = cache.s
+function get_sep_cuts(s::Vector{Float64}, cache::PowerCone, oa_model::JuMP.Model)
+    (us, vs, ws) = s
     if min(us, vs) < 0
         error("power cone point violates variable lower bounds")
     end

@@ -9,7 +9,6 @@ equivalently (p < 0, q ≥ p * (log(r / -p) + 1))
 
 mutable struct ExponentialCone <: Cone
     oa_s::Vector{AE}
-    s::Vector{Float64}
     ExponentialCone() = new()
 end
 
@@ -59,8 +58,8 @@ function get_subp_cuts(z::Vector{Float64}, cache::ExponentialCone, oa_model::JuM
     return [cut]
 end
 
-function get_sep_cuts(cache::ExponentialCone, oa_model::JuMP.Model)
-    (us, vs, ws) = cache.s
+function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, oa_model::JuMP.Model)
+    (us, vs, ws) = s
     if min(ws, vs) < 0
         error("exponential cone point violates variable lower bounds")
     end

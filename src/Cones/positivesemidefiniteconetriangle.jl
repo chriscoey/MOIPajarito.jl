@@ -5,7 +5,6 @@ w ⪰ 0
 
 mutable struct PositiveSemidefiniteConeTriangle <: Cone
     oa_s::Vector{AE}
-    s::Vector{Float64}
     d::Int
     W::Matrix{<:Union{VR, AE}}
     PositiveSemidefiniteConeTriangle() = new()
@@ -54,9 +53,13 @@ function get_subp_cuts(
     return _get_cuts(R_eig, cache, oa_model)
 end
 
-function get_sep_cuts(cache::PositiveSemidefiniteConeTriangle, oa_model::JuMP.Model)
+function get_sep_cuts(
+    s::Vector{Float64},
+    cache::PositiveSemidefiniteConeTriangle,
+    oa_model::JuMP.Model,
+)
     # check s ∉ K
-    sW = vec_to_symm(cache.d, cache.s)
+    sW = vec_to_symm(cache.d, s)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(sW, :U), -Inf, -1e-7)
     isempty(F.values) && return AE[]
     return _get_cuts(F.vectors, cache, oa_model)

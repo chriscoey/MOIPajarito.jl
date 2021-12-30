@@ -11,13 +11,7 @@ const AE = JuMP.AffExpr
 abstract type NatExt end
 struct Nat <: NatExt end
 struct Ext <: NatExt end
-
-function extender(extend::Bool, d::Int)
-    if d <= 1 || !extend
-        return Nat
-    end
-    return Ext
-end
+nat_or_ext(extend::Bool, d::Int) = ((d <= 1 || !extend) ? Nat : Ext)
 
 abstract type Cone end
 
@@ -60,13 +54,6 @@ function clean_array!(z::AbstractArray)
     return iszero(z)
 end
 
-function load_s(cache::Cone, ::Nothing)
-    cache.s = JuMP.value.(cache.oa_s)
-    return
-end
-
-function load_s(cache::Cone, cb::Any)
-    return cache.s = JuMP.callback_value.(cb, cache.oa_s)
-end
+get_oa_s(cache::Cone) = cache.oa_s
 
 end

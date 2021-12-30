@@ -9,7 +9,6 @@ linear and 3-dim rotated second order cone constraints
 
 mutable struct SecondOrderCone{E <: NatExt} <: Cone
     oa_s::Vector{AE}
-    s::Vector{Float64}
     d::Int
     ϕ::Vector{VR}
     SecondOrderCone{E}() where {E <: NatExt} = new{E}()
@@ -19,7 +18,7 @@ function create_cache(oa_s::Vector{AE}, moi_cone::MOI.SecondOrderCone, extend::B
     dim = MOI.dimension(moi_cone)
     @assert dim == length(oa_s)
     d = dim - 1
-    E = extender(extend, d)
+    E = nat_or_ext(extend, d)
     cache = SecondOrderCone{E}()
     cache.oa_s = oa_s
     cache.d = d
@@ -30,8 +29,7 @@ function get_subp_cuts(z::Vector{Float64}, cache::SecondOrderCone, oa_model::JuM
     return _get_cuts(z[2:end], cache, oa_model)
 end
 
-function get_sep_cuts(cache::SecondOrderCone, oa_model::JuMP.Model)
-    s = cache.s
+function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, oa_model::JuMP.Model)
     us = s[1]
     @views ws = s[2:end]
     ws_norm = LinearAlgebra.norm(ws)

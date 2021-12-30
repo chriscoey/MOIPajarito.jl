@@ -26,19 +26,11 @@ function _add_cut(cut::AE, model::JuMP.Model, tol_feas::Float64, cb)
     return 0
 end
 
-function get_value(var::VR, ::Nothing)
-    return JuMP.value(var)
-end
-
-function get_value(var::VR, cb)
-    return JuMP.callback_value(cb, var)
-end
-
-function get_value(vars::Vector{VR}, ::Nothing)
+function get_value(vars::Vector{<:Union{VR, AE}}, ::Nothing)
     return JuMP.value.(vars)
 end
 
-function get_value(vars::Vector{VR}, cb)
+function get_value(vars::Vector{<:Union{VR, AE}}, cb)
     return JuMP.callback_value.(cb, vars)
 end
 
