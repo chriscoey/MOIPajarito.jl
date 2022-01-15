@@ -8,12 +8,12 @@ const MOI = JuMP.MOI
 const VR = JuMP.VariableRef
 const AE = JuMP.AffExpr
 
+import MOIPajarito: Cache, Optimizer
+
 abstract type NatExt end
 struct Nat <: NatExt end
 struct Ext <: NatExt end
 nat_or_ext(extend::Bool, d::Int) = ((d <= 1 || !extend) ? Nat : Ext)
-
-abstract type Cone end
 
 include("secondordercone.jl")
 include("exponentialcone.jl")
@@ -28,18 +28,18 @@ const OACone = Union{
     MOI.PositiveSemidefiniteConeTriangle,
 }
 
-setup_auxiliary(::Cone, ::JuMP.Model) = VR[]
+setup_auxiliary(::Cache, ::Optimizer) = VR[]
 
-extend_start(::Cone, ::Vector{Float64}) = Float64[]
+extend_start(::Cache, ::Vector{Float64}) = Float64[]
 
-num_ext_variables(::Cone) = 0
+num_ext_variables(::Cache) = 0
 
 function dot_expr(
     z::AbstractVecOrMat{Float64},
     vars::AbstractVecOrMat{<:Union{VR, AE}},
-    oa_model::JuMP.Model,
+    opt::Optimizer,
 )
-    return JuMP.@expression(oa_model, JuMP.dot(z, vars))
+    return JuMP.@expression(opt.oa_model, JuMP.dot(z, vars))
 end
 
 function clean_array!(z::AbstractArray)
@@ -54,6 +54,6 @@ function clean_array!(z::AbstractArray)
     return iszero(z)
 end
 
-get_oa_s(cache::Cone) = cache.oa_s
+get_oa_s(cache::Cache) = cache.oa_s
 
 end

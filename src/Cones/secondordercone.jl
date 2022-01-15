@@ -7,7 +7,7 @@ extended formulation
 linear and 3-dim rotated second order cone constraints
 =#
 
-mutable struct SecondOrderCone{E <: NatExt} <: Cone
+mutable struct SecondOrderCone{E <: NatExt} <: Cache
     oa_s::Vector{AE}
     d::Int
     ϕ::Vector{VR}
@@ -25,11 +25,11 @@ function create_cache(oa_s::Vector{AE}, moi_cone::MOI.SecondOrderCone, extend::B
     return cache
 end
 
-function get_subp_cuts(z::Vector{Float64}, cache::SecondOrderCone, oa_model::JuMP.Model)
-    return _get_cuts(z[2:end], cache, oa_model)
+function get_subp_cuts(z::Vector{Float64}, cache::SecondOrderCone, opt::Optimizer)
+    return _get_cuts(z[2:end], cache, opt)
 end
 
-function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, oa_model::JuMP.Model)
+function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, opt::Optimizer)
     us = s[1]
     @views ws = s[2:end]
     ws_norm = LinearAlgebra.norm(ws)
@@ -40,17 +40,17 @@ function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, oa_model::JuMP
 
     # cut is (1, -ws / ‖ws‖)
     r = -inv(ws_norm) * ws
-    return _get_cuts(r, cache, oa_model)
+    return _get_cuts(r, cache, opt)
 end
 
 # unextended formulation
 
-function add_init_cuts(cache::SecondOrderCone{Nat}, oa_model::JuMP.Model)
+function add_init_cuts(cache::SecondOrderCone{Nat}, opt::Optimizer)
     u = cache.oa_s[1]
     @views w = cache.oa_s[2:end] # TODO cache?
     d = cache.d
     # u ≥ 0, u ≥ |wᵢ|
-    JuMP.@constraints(oa_model, begin
+    JuMP.@constraints(opt.oa_model, begin
         u >= 0
         [i in 1:d], u >= w[i]
         [i in 1:d], u >= -w[i]
@@ -58,13 +58,13 @@ function add_init_cuts(cache::SecondOrderCone{Nat}, oa_model::JuMP.Model)
     return 1 + 2d
 end
 
-function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Nat}, oa_model::JuMP.Model)
+function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Nat}, opt::Optimizer)
     # strengthened cut is (‖r‖, r)
     clean_array!(r) && return AE[]
     p = LinearAlgebra.norm(r)
     u = cache.oa_s[1]
     @views w = cache.oa_s[2:end]
-    cut = JuMP.@expression(oa_model, p * u + JuMP.dot(r, w))
+    cut = JuMP.@expression(opt.oa_model, p * u + JuMP.dot(r, w))
     return [cut]
 end
 
@@ -82,22 +82,22 @@ function extend_start(cache::SecondOrderCone{Ext}, s_start::Vector{Float64})
     return [w_i / 2u_start * w_i for w_i in w_start]
 end
 
-function setup_auxiliary(cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
+function setup_auxiliary(cache::SecondOrderCone{Ext}, opt::Optimizer)
     @assert cache.d >= 2
-    ϕ = cache.ϕ = JuMP.@variable(oa_model, [1:(cache.d)], lower_bound = 0)
+    ϕ = cache.ϕ = JuMP.@variable(opt.oa_model, [1:(cache.d)], lower_bound = 0)
     u = cache.oa_s[1]
-    JuMP.@constraint(oa_model, u >= 2 * sum(ϕ))
+    JuMP.@constraint(opt.oa_model, u >= 2 * sum(ϕ))
     return ϕ
 end
 
-function add_init_cuts(cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
+function add_init_cuts(cache::SecondOrderCone{Ext}, opt::Optimizer)
     u = cache.oa_s[1]
     @views w = cache.oa_s[2:end]
     d = cache.d
     ϕ = cache.ϕ
     # u ≥ 0, u ≥ |wᵢ|
     # disaggregated cut on (u, ϕᵢ, wᵢ) is (1, 2, ±2)
-    JuMP.@constraints(oa_model, begin
+    JuMP.@constraints(opt.oa_model, begin
         u >= 0
         [i in 1:d], u + 2 * ϕ[i] + 2 * w[i] >= 0
         [i in 1:d], u + 2 * ϕ[i] - 2 * w[i] >= 0
@@ -105,7 +105,7 @@ function add_init_cuts(cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
     return 1 + 2d
 end
 
-function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Ext}, oa_model::JuMP.Model)
+function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Ext}, opt::Optimizer)
     clean_array!(r) && return AE[]
     p = LinearAlgebra.norm(r)
     u = cache.oa_s[1]
@@ -116,7 +116,7 @@ function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Ext}, oa_model::Ju
         r_i = r[i]
         iszero(r_i) && continue
         # strengthened disaggregated cut on (u, ϕᵢ, wᵢ) is (rᵢ² / 2‖r‖, ‖r‖, rᵢ)
-        cut = JuMP.@expression(oa_model, r_i^2 / 2p * u + p * ϕ[i] + r_i * w[i])
+        cut = JuMP.@expression(opt.oa_model, r_i^2 / 2p * u + p * ϕ[i] + r_i * w[i])
         push!(cuts, cut)
     end
     return cuts

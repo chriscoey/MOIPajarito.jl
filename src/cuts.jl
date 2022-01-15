@@ -3,7 +3,7 @@
 # add initial fixed cuts
 function add_init_cuts(opt::Optimizer)
     for cache in opt.cone_caches
-        opt.num_cuts += Cones.add_init_cuts(cache, opt.oa_model)
+        opt.num_cuts += Cones.add_init_cuts(cache, opt)
     end
     return
 end
@@ -22,7 +22,7 @@ function add_relax_cuts(opt::Optimizer)
             @warn("norm of dual is large ($z_norm)")
         end
 
-        cuts = Cones.get_subp_cuts(z, cache, opt.oa_model)
+        cuts = Cones.get_subp_cuts(z, cache, opt)
         add_cuts(cuts, opt)
     end
 
@@ -54,7 +54,7 @@ function add_subp_cuts(opt::Optimizer, cuts_cache::Union{Nothing, Vector{AE}} = 
             z .*= inv(z_norm)
         end
 
-        cuts = Cones.get_subp_cuts(z, cache, opt.oa_model)
+        cuts = Cones.get_subp_cuts(z, cache, opt)
         add_cuts(cuts, opt)
 
         if !isnothing(cuts_cache)
@@ -70,7 +70,7 @@ function add_sep_cuts(opt::Optimizer)
 
     s_vals = [get_value(Cones.get_oa_s(cache), opt.lazy_cb) for cache in opt.cone_caches]
     for (s, cache) in zip(s_vals, opt.cone_caches)
-        cuts = Cones.get_sep_cuts(s, cache, opt.oa_model)
+        cuts = Cones.get_sep_cuts(s, cache, opt)
         add_cuts(cuts, opt)
     end
 
