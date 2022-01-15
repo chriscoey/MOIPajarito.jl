@@ -7,7 +7,7 @@ dual cone
 equivalently (p < 0, q ≥ p * (log(r / -p) + 1))
 =#
 
-mutable struct ExponentialCone <: Cone
+mutable struct ExponentialCone <: Cache
     oa_s::Vector{AE}
     ExponentialCone() = new()
 end
@@ -19,11 +19,11 @@ function create_cache(oa_s::Vector{AE}, ::MOI.ExponentialCone, ::Bool)
     return cache
 end
 
-function add_init_cuts(cache::ExponentialCone, oa_model::JuMP.Model)
+function add_init_cuts(cache::ExponentialCone, opt::Optimizer)
     (u, v, w) = cache.oa_s
     # add variable bounds and some separation cuts from linearizations at p = -1
     r_lin = [1e-3, 1e0, 1e2]
-    JuMP.@constraints(oa_model, begin
+    JuMP.@constraints(opt.oa_model, begin
         v >= 0
         w >= 0
         [r in r_lin], -u - (log(r) + 1) * v + r * w >= 0
@@ -31,7 +31,7 @@ function add_init_cuts(cache::ExponentialCone, oa_model::JuMP.Model)
     return 2 + length(r_lin)
 end
 
-function get_subp_cuts(z::Vector{Float64}, cache::ExponentialCone, oa_model::JuMP.Model)
+function get_subp_cuts(z::Vector{Float64}, cache::ExponentialCone, opt::Optimizer)
     p = z[1]
     r = z[3]
     if p > 0 || r < 0
@@ -47,18 +47,18 @@ function get_subp_cuts(z::Vector{Float64}, cache::ExponentialCone, oa_model::JuM
     elseif r / -p > 1e-8
         # strengthened cut is (p, p * (log(r / -p) + 1), r)
         q = p * (log(r / -p) + 1)
-        cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
+        cut = JuMP.@expression(opt.oa_model, p * u + q * v + r * w)
     elseif q / p < 30
         # strengthened cut is (p, q, -p * exp(q / p - 1))
         r = -p * exp(q / p - 1)
-        cut = JuMP.@expression(oa_model, p * u + q * v + r * w)
+        cut = JuMP.@expression(opt.oa_model, p * u + q * v + r * w)
     else
         return AE[]
     end
     return [cut]
 end
 
-function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, oa_model::JuMP.Model)
+function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, opt::Optimizer)
     (us, vs, ws) = s
     if min(ws, vs) < 0
         error("exponential cone point violates variable lower bounds")
@@ -76,7 +76,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, oa_model::JuMP
             # cut is (-1, -log(ℯ / 2 * us / ws), us / ws / 2)
             r = us / (2 * ws)
             q = -log(ℯ / 2 * r)
-            cut = JuMP.@expression(oa_model, -u + q * v + r * w)
+            cut = JuMP.@expression(opt.oa_model, -u + q * v + r * w)
         else
             return AE[]
         end
@@ -84,12 +84,12 @@ function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, oa_model::JuMP
         # vs and ws not near zero
         # gradient cut is (-1, log(ws / vs) - 1, vs / ws)
         q = log(ws / vs) - 1
-        cut = JuMP.@expression(oa_model, -u + q * v + vs / ws * w)
+        cut = JuMP.@expression(opt.oa_model, -u + q * v + vs / ws * w)
     elseif vs * exp(us / vs) - ws > 1e-7
         # gradient cut is (-exp(us / vs), (us - vs) / vs * exp(us / vs), 1)
         p = -exp(us / vs)
         q = (us - vs) / vs * p
-        cut = JuMP.@expression(oa_model, p * u + q * v + w)
+        cut = JuMP.@expression(opt.oa_model, p * u + q * v + w)
     else
         return AE[]
     end

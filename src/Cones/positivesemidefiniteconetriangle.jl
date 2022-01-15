@@ -3,7 +3,7 @@ positive semidefinite cone triangle (unscaled)
 w ⪰ 0
 =#
 
-mutable struct PositiveSemidefiniteConeTriangle <: Cone
+mutable struct PositiveSemidefiniteConeTriangle <: Cache
     oa_s::Vector{AE}
     d::Int
     W::Matrix{<:Union{VR, AE}}
@@ -22,7 +22,7 @@ function create_cache(
     return cache
 end
 
-function add_init_cuts(cache::PositiveSemidefiniteConeTriangle, oa_model::JuMP.Model)
+function add_init_cuts(cache::PositiveSemidefiniteConeTriangle, opt::Optimizer)
     # cuts enforce W_ii ≥ 0, ∀i
     # cuts on (W_ii, W_jj, W_ij) are (1, 1, ±2), ∀i != j
     # (a linearization of W_ii * W_jj ≥ W_ij^2)
@@ -30,7 +30,7 @@ function add_init_cuts(cache::PositiveSemidefiniteConeTriangle, oa_model::JuMP.M
     d = cache.d
     W = cache.W
     JuMP.@constraints(
-        oa_model,
+        opt.oa_model,
         begin
             [i in 1:d], W[i, i] >= 0
             [j in 1:d, i in 1:(j - 1)], W[i, i] + W[j, j] + 2 * W[i, j] >= 0
@@ -43,32 +43,32 @@ end
 function get_subp_cuts(
     z::Vector{Float64},
     cache::PositiveSemidefiniteConeTriangle,
-    oa_model::JuMP.Model,
+    opt::Optimizer,
 )
     # strengthened cuts from eigendecomposition are λᵢ * rᵢ * rᵢ'
     R = vec_to_symm(cache.d, z)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-10, Inf) # TODO tune
     isempty(F.values) && return AE[]
     R_eig = F.vectors * LinearAlgebra.Diagonal(sqrt.(F.values))
-    return _get_cuts(R_eig, cache, oa_model)
+    return _get_cuts(R_eig, cache, opt)
 end
 
 function get_sep_cuts(
     s::Vector{Float64},
     cache::PositiveSemidefiniteConeTriangle,
-    oa_model::JuMP.Model,
+    opt::Optimizer,
 )
     # check s ∉ K
     sW = vec_to_symm(cache.d, s)
     F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(sW, :U), -Inf, -1e-7)
     isempty(F.values) && return AE[]
-    return _get_cuts(F.vectors, cache, oa_model)
+    return _get_cuts(F.vectors, cache, opt)
 end
 
 function _get_cuts(
     R_eig::Matrix{Float64},
     cache::PositiveSemidefiniteConeTriangle,
-    oa_model::JuMP.Model,
+    opt::Optimizer,
 )
     # cuts from eigendecomposition are rᵢ * rᵢ'
     W = cache.W
@@ -77,7 +77,7 @@ function _get_cuts(
         @views r_i = R_eig[:, i]
         R_i = r_i * r_i'
         clean_array!(R_i) && continue
-        cut = dot_expr(R_i, W, oa_model)
+        cut = dot_expr(R_i, W, opt)
         push!(cuts, cut)
     end
     return cuts

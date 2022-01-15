@@ -16,8 +16,10 @@ const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 const AE = JuMP.AffExpr
 
-include("Cones/Cones.jl")
+abstract type Cache end
+
 include("optimizer.jl")
+include("Cones/Cones.jl")
 include("algorithms.jl")
 include("models.jl")
 include("cuts.jl")

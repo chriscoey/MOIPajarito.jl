@@ -64,7 +64,7 @@ function setup_models(opt::Optimizer)
     opt.subp_cone_idxs = UnitRange{Int}[]
     opt.relax_oa_cones = CR[]
     opt.subp_oa_cones = CR[]
-    opt.cone_caches = Cones.Cone[]
+    opt.cone_caches = Cache[]
     opt.oa_cone_idxs = UnitRange{Int}[]
     opt.oa_slack_idxs = UnitRange{Int}[]
 
@@ -92,7 +92,7 @@ function setup_models(opt::Optimizer)
 
             # set up cone cache and extended formulation
             cache = Cones.create_cache(oa_aff_i, cone, opt.use_extended_form)
-            ext_i = Cones.setup_auxiliary(cache, oa_model)
+            ext_i = Cones.setup_auxiliary(cache, opt)
             append!(oa_vars, ext_i)
 
             push!(opt.relax_oa_cones, relax_cone_i)

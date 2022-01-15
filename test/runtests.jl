@@ -1,11 +1,3 @@
-# TODO this is temporary
-# so I don't need to tag so many versions of Hypatia to get CI running here
-# also later remove Hypatia from Project.toml deps (only keep in test deps)
-# and remove Pkg from test deps
-using Pkg
-pkg"add Hypatia#master"
-Pkg.instantiate()
-
 # all tests
 
 import Test
