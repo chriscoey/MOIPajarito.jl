@@ -13,7 +13,7 @@ import MOIPajarito: Cache, Optimizer
 abstract type NatExt end
 struct Nat <: NatExt end
 struct Ext <: NatExt end
-nat_or_ext(extend::Bool, d::Int) = ((d <= 1 || !extend) ? Nat : Ext)
+nat_or_ext(opt::Optimizer, d::Int) = ((d > 1 && opt.use_extended_form) ? Ext : Nat)
 
 include("secondordercone.jl")
 include("exponentialcone.jl")

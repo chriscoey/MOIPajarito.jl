@@ -37,7 +37,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     oa_x::Vector{VR}
     relax_x::Vector{VR}
     subp_x::Vector{VR}
-    subp_eq::Union{Nothing, CR}
+    subp_eq::CR
     subp_cones::Vector{CR}
     subp_cone_idxs::Vector{UnitRange{Int}}
     c_int::Vector{Float64}
@@ -50,6 +50,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     cone_caches::Vector{Cache}
     oa_cone_idxs::Vector{UnitRange{Int}}
     oa_slack_idxs::Vector{Vector{Int}}
+    unique_cone_extras::Dict{UInt, Any} # useful for extensions
 
     # used/modified during optimize
     lazy_cb::Any
