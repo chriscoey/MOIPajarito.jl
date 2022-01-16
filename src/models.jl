@@ -67,6 +67,7 @@ function setup_models(opt::Optimizer)
     opt.cone_caches = Cache[]
     opt.oa_cone_idxs = UnitRange{Int}[]
     opt.oa_slack_idxs = UnitRange{Int}[]
+    opt.unique_cone_extras = Dict{UInt, Any}()
 
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         relax_cone_i = JuMP.@constraint(relax_model, relax_aff[idxs] in cone)
@@ -112,8 +113,6 @@ function setup_models(opt::Optimizer)
             JuMP.set_start_value.(oa_vars, oa_start)
         end
     end
-
-    opt.unique_cone_extras = Dict{UInt, Any}()
 
     isempty(opt.cone_caches) || return false
     if opt.verbose
