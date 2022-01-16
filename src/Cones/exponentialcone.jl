@@ -12,7 +12,7 @@ mutable struct ExponentialCone <: Cache
     ExponentialCone() = new()
 end
 
-function create_cache(oa_s::Vector{AE}, ::MOI.ExponentialCone, ::Bool)
+function create_cache(oa_s::Vector{AE}, ::MOI.ExponentialCone, ::Optimizer)
     @assert length(oa_s) == 3
     cache = ExponentialCone()
     cache.oa_s = oa_s

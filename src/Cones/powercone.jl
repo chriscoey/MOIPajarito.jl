@@ -13,7 +13,7 @@ mutable struct PowerCone <: Cache
     PowerCone() = new()
 end
 
-function create_cache(oa_s::Vector{AE}, moi_cone::MOI.PowerCone, ::Bool)
+function create_cache(oa_s::Vector{AE}, moi_cone::MOI.PowerCone, ::Optimizer)
     @assert length(oa_s) == 3
     cache = PowerCone()
     cache.t = moi_cone.exponent

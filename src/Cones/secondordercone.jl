@@ -14,11 +14,11 @@ mutable struct SecondOrderCone{E <: NatExt} <: Cache
     SecondOrderCone{E}() where {E <: NatExt} = new{E}()
 end
 
-function create_cache(oa_s::Vector{AE}, moi_cone::MOI.SecondOrderCone, extend::Bool)
+function create_cache(oa_s::Vector{AE}, moi_cone::MOI.SecondOrderCone, opt::Optimizer)
     dim = MOI.dimension(moi_cone)
     @assert dim == length(oa_s)
     d = dim - 1
-    E = nat_or_ext(extend, d)
+    E = nat_or_ext(opt, d)
     cache = SecondOrderCone{E}()
     cache.oa_s = oa_s
     cache.d = d

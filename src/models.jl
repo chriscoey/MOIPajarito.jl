@@ -91,7 +91,7 @@ function setup_models(opt::Optimizer)
             push!(opt.oa_slack_idxs, idxs[slack_idxs])
 
             # set up cone cache and extended formulation
-            cache = Cones.create_cache(oa_aff_i, cone, opt.use_extended_form)
+            cache = Cones.create_cache(oa_aff_i, cone, opt)
             ext_i = Cones.setup_auxiliary(cache, opt)
             append!(oa_vars, ext_i)
 
@@ -112,6 +112,8 @@ function setup_models(opt::Optimizer)
             JuMP.set_start_value.(oa_vars, oa_start)
         end
     end
+
+    opt.unique_cone_extras = Dict{UInt, Any}()
 
     isempty(opt.cone_caches) || return false
     if opt.verbose

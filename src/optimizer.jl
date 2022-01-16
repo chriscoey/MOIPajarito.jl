@@ -50,6 +50,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     cone_caches::Vector{Cache}
     oa_cone_idxs::Vector{UnitRange{Int}}
     oa_slack_idxs::Vector{Vector{Int}}
+    unique_cone_extras::Dict{UInt, Any} # useful for extensions
 
     # used/modified during optimize
     lazy_cb::Any

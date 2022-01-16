@@ -13,7 +13,7 @@ end
 function create_cache(
     oa_s::Vector{AE},
     moi_cone::MOI.PositiveSemidefiniteConeTriangle,
-    ::Bool,
+    ::Optimizer,
 )
     cache = PositiveSemidefiniteConeTriangle()
     cache.oa_s = oa_s
