@@ -15,7 +15,7 @@ function setup_models(opt::Optimizer)
     relax_model = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
     relax_x = opt.relax_x = JuMP.@variable(relax_model, [1:length(opt.c)])
     JuMP.@objective(relax_model, Min, JuMP.dot(opt.c, relax_x))
-    JuMP.@constraint(relax_model, opt.A * relax_x .== opt.b)
+    JuMP.@constraint(relax_model, opt.b - opt.A * relax_x in MOI.Zeros(length(opt.b)))
 
     # differentiate integer and continuous variables
     num_cont_vars = length(opt.c) - opt.num_int_vars
@@ -53,7 +53,7 @@ function setup_models(opt::Optimizer)
     opt.cone_caches = Cache[]
     opt.oa_cone_idxs = UnitRange{Int}[]
     opt.oa_slack_idxs = UnitRange{Int}[]
-    opt.unique_cone_extras = Dict{UInt, Any}()
+    opt.unique_cones = Dict{UInt, Any}()
 
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
         relax_cone_i = JuMP.@constraint(relax_model, relax_aff[idxs] in cone)

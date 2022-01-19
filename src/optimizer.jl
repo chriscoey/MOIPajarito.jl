@@ -50,7 +50,6 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     cone_caches::Vector{Cache}
     oa_cone_idxs::Vector{UnitRange{Int}}
     oa_slack_idxs::Vector{Vector{Int}}
-    unique_cone_extras::Dict{UInt, Any} # useful for extensions
 
     # used/modified during optimize
     lazy_cb::Any
@@ -70,6 +69,10 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     num_lazy_cbs::Int
     num_heuristic_cbs::Int
 
+    # useful for PajaritoExtras
+    sep_solver::Union{Nothing, MOI.OptimizerWithAttributes}
+    unique_cones::Dict{UInt, Any}
+
     function Optimizer(
         verbose::Bool = true,
         tol_feas::Float64 = 1e-7,
@@ -82,6 +85,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         debug_cuts::Bool = false,
         oa_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
         conic_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
+        sep_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
     )
         opt = new()
         opt.verbose = verbose
@@ -97,6 +101,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.debug_cuts = debug_cuts
         opt.oa_opt = nothing
         opt.conic_opt = nothing
+        opt.sep_solver = sep_solver
         return empty_optimize(opt)
     end
 end
