@@ -102,6 +102,8 @@ end
 
 MOI.get(opt::Optimizer, ::MOI.ObjectiveBound) = _adjust_obj(opt, opt.obj_bound)
 
+MOI.get(opt::Optimizer, ::MOI.RelativeGap) = get_obj_rel_gap(opt)
+
 MOI.get(opt::Optimizer, ::MOI.ResultCount) = 1
 
 function MOI.get(opt::Optimizer, attr::MOI.VariablePrimal, vi::VI)
