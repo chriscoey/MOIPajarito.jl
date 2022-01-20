@@ -110,3 +110,5 @@ function MOI.get(opt::Optimizer, attr::MOI.VariablePrimal, vi::VI)
     MOI.check_result_index_bounds(opt, attr)
     return opt.incumbent[vi.value]
 end
+
+MOI.get(opt::Optimizer, ::MOI.NodeCount) = MOI.get(opt.oa_model, MOI.NodeCount())
