@@ -102,9 +102,13 @@ end
 
 MOI.get(opt::Optimizer, ::MOI.ObjectiveBound) = _adjust_obj(opt, opt.obj_bound)
 
+MOI.get(opt::Optimizer, ::MOI.RelativeGap) = get_obj_rel_gap(opt)
+
 MOI.get(opt::Optimizer, ::MOI.ResultCount) = 1
 
 function MOI.get(opt::Optimizer, attr::MOI.VariablePrimal, vi::VI)
     MOI.check_result_index_bounds(opt, attr)
     return opt.incumbent[vi.value]
 end
+
+MOI.get(opt::Optimizer, ::MOI.NodeCount) = MOI.get(opt.oa_model, MOI.NodeCount())
