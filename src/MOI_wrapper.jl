@@ -9,6 +9,8 @@ MOI.empty!(opt::Optimizer) = empty_optimize(opt)
 
 MOI.get(::Optimizer, ::MOI.SolverName) = "Pajarito"
 
+MOI.get(opt::Optimizer, ::MOI.RawSolver) = opt
+
 MOI.supports(::Optimizer, ::MOI.Silent) = true
 
 function MOI.set(opt::Optimizer, ::MOI.Silent, value::Bool)
