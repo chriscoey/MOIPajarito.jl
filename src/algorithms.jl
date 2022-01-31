@@ -18,6 +18,7 @@ function optimize(opt::Optimizer)
     end
 
     # add continuous relaxation cuts and initial fixed cuts
+    print_header(opt)
     add_relax_cuts(opt)
     add_init_cuts(opt)
 
@@ -420,3 +421,10 @@ end
 
 # compute objective relative gap
 get_obj_rel_gap(opt::Optimizer) = get_obj_abs_gap(opt) / (1e-5 + abs(opt.obj_value))
+
+# print iteration statistics column names
+function print_header(opt::Optimizer)
+    opt.verbose || return
+    Printf.@printf("%5s %8s %12s %12s %12s\n", "iter", "cuts", "obj", "bound", "gap")
+    return
+end
