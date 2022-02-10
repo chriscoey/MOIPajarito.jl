@@ -10,22 +10,34 @@ import JuMP
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    @testset "iterative method" begin
-        run_jump_tests(true, oa_solver, conic_solver)
+    @testset "using conic solver" begin
+        @testset "iterative method" begin
+            run_jump_tests(true, true, oa_solver, conic_solver)
+        end
+        @testset "one tree method" begin
+            run_jump_tests(false, true, oa_solver, conic_solver)
+        end
     end
-    @testset "one tree method" begin
-        run_jump_tests(false, oa_solver, conic_solver)
+    @testset "using separation only" begin
+        @testset "iterative method" begin
+            run_jump_tests(true, false, oa_solver, conic_solver)
+        end
+        @testset "one tree method" begin
+            run_jump_tests(false, false, oa_solver, conic_solver)
+        end
     end
     return
 end
 
-function run_jump_tests(use_iter::Bool, oa_solver, conic_solver)
+function run_jump_tests(use_iter::Bool, solve_relax_subp::Bool, oa_solver, conic_solver)
     opt = JuMP.optimizer_with_attributes(
         MOIPajarito.Optimizer,
         "verbose" => true,
         # "verbose" => false,
         "use_iterative_method" => use_iter,
         # "debug_cuts" => use_iter, # debug cuts if using iterative method
+        "solve_relaxation" => solve_relax_subp,
+        "solve_subproblems" => solve_relax_subp,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
         "iteration_limit" => 30,

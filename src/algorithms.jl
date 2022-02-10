@@ -10,11 +10,13 @@ function optimize(opt::Optimizer)
         return
     end
 
-    # solve continuous relaxation
-    relax_finish = solve_relaxation(opt)
-    if relax_finish
-        finish_optimize(opt)
-        return
+    if opt.solve_relaxation
+        # solve continuous relaxation
+        relax_finish = solve_relaxation(opt)
+        if relax_finish
+            finish_optimize(opt)
+            return
+        end
     end
 
     # add continuous relaxation cuts and initial fixed cuts
@@ -67,19 +69,21 @@ function run_iterative_method(opt::Optimizer)
     # update objective bound
     opt.obj_bound = get_objective_bound(opt.oa_model)
 
-    # solve conic subproblem with fixed integer solution and update incumbent
-    # check if integer solution is repeated
     subp_cuts_added = false
-    int_sol = get_integral_solution(opt)
-    hash_int_sol = hash(int_sol)
-    if haskey(opt.int_sols_cuts, hash_int_sol)
-        @warn("integral solution repeated")
-    else
-        # new integral solution: solve subproblem and add cuts
-        opt.int_sols_cuts[hash_int_sol] = AE[]
-        subp_failed = solve_subproblem(int_sol, opt)
-        if !subp_failed
-            subp_cuts_added = add_subp_cuts(opt)
+    if opt.solve_subproblems
+        # solve conic subproblem with fixed integer solution and update incumbent
+        # check if integer solution is repeated
+        int_sol = get_integral_solution(opt)
+        hash_int_sol = hash(int_sol)
+        if haskey(opt.int_sols_cuts, hash_int_sol)
+            @warn("integral solution repeated")
+        else
+            # new integral solution: solve subproblem and add cuts
+            opt.int_sols_cuts[hash_int_sol] = AE[]
+            subp_failed = solve_subproblem(int_sol, opt)
+            if !subp_failed
+                subp_cuts_added = add_subp_cuts(opt)
+            end
         end
     end
 
@@ -154,28 +158,30 @@ function run_one_tree_method(opt::Optimizer)
         end
         opt.lazy_cb = cb
 
-        # check if integer solution is repeated and cache the cuts
         subp_cuts_added = false
-        int_sol = get_integral_solution(opt)
-        hash_int_sol = hash(int_sol)
-        if haskey(opt.int_sols_cuts, hash_int_sol)
-            # integral solution repeated: add cached cuts
-            cuts = opt.int_sols_cuts[hash_int_sol]
-            num_cuts_before = opt.num_cuts
-            add_cuts(cuts, opt)
-            if opt.num_cuts <= num_cuts_before
-                if opt.verbose
-                    println("cached subproblem cuts could not be added")
+        if opt.solve_subproblems
+            # check if integer solution is repeated and cache the cuts
+            int_sol = get_integral_solution(opt)
+            hash_int_sol = hash(int_sol)
+            if haskey(opt.int_sols_cuts, hash_int_sol)
+                # integral solution repeated: add cached cuts
+                cuts = opt.int_sols_cuts[hash_int_sol]
+                num_cuts_before = opt.num_cuts
+                add_cuts(cuts, opt)
+                if opt.num_cuts <= num_cuts_before
+                    if opt.verbose
+                        println("cached subproblem cuts could not be added")
+                    end
+                else
+                    subp_cuts_added = true
                 end
             else
-                subp_cuts_added = true
-            end
-        else
-            # new integral solution: solve subproblem, cache cuts, and add cuts
-            subp_failed = solve_subproblem(int_sol, opt)
-            cuts_cache = opt.int_sols_cuts[hash_int_sol] = AE[]
-            if !subp_failed
-                subp_cuts_added = add_subp_cuts(opt, cuts_cache)
+                # new integral solution: solve subproblem, cache cuts, and add cuts
+                cuts_cache = opt.int_sols_cuts[hash_int_sol] = AE[]
+                subp_failed = solve_subproblem(int_sol, opt)
+                if !subp_failed
+                    subp_cuts_added = add_subp_cuts(opt, cuts_cache)
+                end
             end
         end
 
