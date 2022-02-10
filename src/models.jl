@@ -121,19 +121,25 @@ function setup_models(opt::Optimizer)
     return true
 end
 
+# to balance variable dimension and sparsity of the constraint matrix with K* cuts, only add
+# slacks if number of variables involved in this constraint exceeds the constraint dimension
 function create_slacks(model::JuMP.Model, expr_vec::Vector{AE})
     slacks = VR[]
     slack_idxs = Int[]
-    for (j, expr_j) in enumerate(expr_vec)
-        terms = JuMP.linear_terms(expr_j)
-        length(terms) <= 1 && continue
+    vars = Set(k.index.value for f in expr_vec for k in keys(f.terms))
+    if length(vars) > length(expr_vec)
+        # number of variables in expr_vec exceeds dimension of expr_vec
+        for (j, expr_j) in enumerate(expr_vec)
+            terms = JuMP.linear_terms(expr_j)
+            length(terms) <= 1 && continue
 
-        # affine expression has more than one variable, so add a slack variable
-        s_j = JuMP.@variable(model)
-        JuMP.@constraint(model, s_j .== expr_j)
-        expr_vec[j] = s_j
-        push!(slacks, s_j)
-        push!(slack_idxs, j)
+            # affine expression has more than one variable, so add a slack variable
+            s_j = JuMP.@variable(model)
+            JuMP.@constraint(model, s_j .== expr_j)
+            expr_vec[j] = s_j
+            push!(slacks, s_j)
+            push!(slack_idxs, j)
+        end
     end
     return (slacks, slack_idxs)
 end
