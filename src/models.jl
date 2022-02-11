@@ -105,8 +105,6 @@ function setup_models(opt::Optimizer)
         println("no conic constraints need outer approximation")
     end
 
-    opt.debug_cuts && return false
-
     # no conic constraints need outer approximation, so just solve the OA model and finish
     time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true

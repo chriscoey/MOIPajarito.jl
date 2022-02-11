@@ -14,7 +14,6 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     solve_subproblems::Bool
     oa_solver::Union{Nothing, MOI.OptimizerWithAttributes}
     conic_solver::Union{Nothing, MOI.OptimizerWithAttributes}
-    debug_cuts::Bool
 
     # optimizers
     oa_opt::Union{Nothing, MOI.AbstractOptimizer}
@@ -86,7 +85,6 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         use_extended_form::Bool = true,
         solve_relaxation::Bool = true,
         solve_subproblems::Bool = true,
-        debug_cuts::Bool = false,
         oa_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
         conic_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
         sep_solver::Union{Nothing, MOI.OptimizerWithAttributes} = nothing,
@@ -104,7 +102,6 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         opt.solve_subproblems = solve_subproblems
         opt.oa_solver = oa_solver
         opt.conic_solver = conic_solver
-        opt.debug_cuts = debug_cuts
         opt.oa_opt = nothing
         opt.conic_opt = nothing
         opt.sep_solver = sep_solver

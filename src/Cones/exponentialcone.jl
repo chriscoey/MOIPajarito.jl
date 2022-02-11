@@ -59,10 +59,9 @@ function get_subp_cuts(z::Vector{Float64}, cache::ExponentialCone, opt::Optimize
 end
 
 function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, opt::Optimizer)
-    (us, vs, ws) = s
-    if min(ws, vs) < 0
-        error("exponential cone point violates variable lower bounds")
-    end
+    us = s[1]
+    vs = max(s[2], 0)
+    ws = max(s[3], 0)
     (u, v, w) = cache.oa_s
 
     # check s ∉ K and add cut
@@ -88,7 +87,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, opt::Optimizer
     elseif vs * exp(us / vs) - ws > 1e-7
         # gradient cut is (-exp(us / vs), (us - vs) / vs * exp(us / vs), 1)
         p = -exp(us / vs)
-        q = (us - vs) / vs * p
+        q = (us - vs) / vs * -p
         cut = JuMP.@expression(opt.oa_model, p * u + q * v + w)
     else
         return AE[]

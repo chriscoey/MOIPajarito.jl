@@ -35,12 +35,11 @@ function run_jump_tests(use_iter::Bool, solve_relax_subp::Bool, oa_solver, conic
         "verbose" => true,
         # "verbose" => false,
         "use_iterative_method" => use_iter,
-        # "debug_cuts" => use_iter, # debug cuts if using iterative method
         "solve_relaxation" => solve_relax_subp,
         "solve_subproblems" => solve_relax_subp,
         "oa_solver" => oa_solver,
         "conic_solver" => conic_solver,
-        "iteration_limit" => 30,
+        "iteration_limit" => 100,
         # "time_limit" => 120.0,
     )
     insts = [_soc1, _soc2, _soc3, _exp1, _exp2, _pow1, _pow2, _psd1, _psd2, _expdesign]
@@ -164,6 +163,7 @@ function _exp1(opt)
     JuMP.@objective(m, Max, u)
     JuMP.@constraint(m, s in MOI.ExponentialCone())
     JuMP.@constraint(m, 1 / 2 - u - v >= 0)
+    c1 = JuMP.@constraint(m, w <= 1e5)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL
     @test JuMP.primal_status(m) == MOI.FEASIBLE_POINT
@@ -171,6 +171,7 @@ function _exp1(opt)
     @test isapprox(JuMP.objective_bound(m), 0, atol = TOL)
     @test isapprox(JuMP.value(v), 0, atol = TOL)
 
+    JuMP.delete(m, c1)
     JuMP.@objective(m, Max, u - w)
     JuMP.optimize!(m)
     @test JuMP.termination_status(m) == MOI.OPTIMAL
@@ -207,7 +208,7 @@ function _exp2(opt)
 end
 
 function _pow1(opt)
-    TOL = 1e-4
+    TOL = 1e-3
     m = JuMP.Model(opt)
 
     JuMP.@variable(m, x)
