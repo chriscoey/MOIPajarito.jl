@@ -20,12 +20,12 @@ function optimize(opt::Optimizer)
     end
 
     # add continuous relaxation cuts and initial fixed cuts
-    print_header(opt)
     add_relax_cuts(opt)
     add_init_cuts(opt)
 
     if opt.use_iterative_method
         # solve using iterative method
+        print_header(opt)
         while true
             opt.num_iters += 1
             finish_iter = run_iterative_method(opt)
@@ -67,7 +67,11 @@ function run_iterative_method(opt::Optimizer)
     end
 
     # update objective bound
-    opt.obj_bound = get_objective_bound(opt.oa_model)
+    obj_bound = get_objective_bound(opt.oa_model)
+    if !isfinite(obj_bound) && oa_status == MOI.OPTIMAL
+        obj_bound = JuMP.objective_value(opt.oa_model)
+    end
+    opt.obj_bound = obj_bound
 
     subp_cuts_added = false
     if opt.solve_subproblems
@@ -148,6 +152,12 @@ function run_one_tree_method(opt::Optimizer)
         println("starting one tree method")
     end
     oa_model = opt.oa_model
+    if iszero(opt.num_int_vars)
+        println("model has no integer variables, so adding a dummy integer variable")
+        dummy = JuMP.@variable(oa_model, integer = true)
+    else
+        dummy = nothing
+    end
 
     function lazy_cb(cb)
         opt.num_lazy_cbs += 1
@@ -234,6 +244,11 @@ function run_one_tree_method(opt::Optimizer)
         @warn("OA solver status $oa_status is not handled")
         opt.status = MOI.OTHER_ERROR
     end
+
+    if !isnothing(dummy)
+        # delete dummy integer constraint
+        JuMP.delete(oa_model, dummy)
+    end
     return
 end
 
@@ -275,14 +290,14 @@ function solve_relaxation(opt::Optimizer)
     finish = false
 
     # check whether problem is continuous
-    if !opt.debug_cuts && iszero(opt.num_int_vars)
+    if iszero(opt.num_int_vars)
         if opt.verbose
             println("problem is continuous; terminating")
         end
         finish = true
     end
 
-    if !opt.debug_cuts && relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
+    if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
         # check whether conic relaxation solution is integral
         int_sol = JuMP.value.(opt.relax_x[1:(opt.num_int_vars)])
         round_int_sol = round.(Int, int_sol)
@@ -353,7 +368,6 @@ end
 
 # update incumbent from OA solver
 function update_incumbent_from_OA(opt::Optimizer)
-    # obj_val = JuMP.objective_value(opt.oa_model)
     sol = get_value(opt.oa_x, opt.lazy_cb)
     obj_val = LinearAlgebra.dot(opt.c, sol)
     if obj_val < opt.obj_value
@@ -381,10 +395,6 @@ end
 
 # initialize and print
 function start_optimize(opt::Optimizer)
-    if opt.debug_cuts && !opt.use_iterative_method
-        # cannot do lazy callbacks if no integer variables
-        error("can only use debug_cuts = true with use_iterative_method = true")
-    end
     get_conic_opt(opt)
     get_oa_opt(opt)
     empty_optimize(opt)

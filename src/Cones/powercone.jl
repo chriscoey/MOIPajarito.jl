@@ -52,10 +52,9 @@ function get_subp_cuts(z::Vector{Float64}, cache::PowerCone, opt::Optimizer)
 end
 
 function get_sep_cuts(s::Vector{Float64}, cache::PowerCone, opt::Optimizer)
-    (us, vs, ws) = s
-    if min(us, vs) < 0
-        error("power cone point violates variable lower bounds")
-    end
+    us = max(s[1], 0)
+    vs = max(s[2], 0)
+    ws = s[3]
 
     # check s ∉ K
     t = cache.t
