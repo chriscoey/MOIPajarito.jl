@@ -161,8 +161,8 @@ function run_one_tree_method(opt::Optimizer)
 
     function lazy_cb(cb)
         opt.num_lazy_cbs += 1
-        cb_status = JuMP.callback_node_status(cb, oa_model)
-        if cb_status != MOI.CALLBACK_NODE_STATUS_INTEGER
+        status = JuMP.callback_node_status(cb, oa_model)
+        if status != MOI.CALLBACK_NODE_STATUS_INTEGER
             # only solve subproblem at an integer solution
             return
         end
@@ -206,17 +206,21 @@ function run_one_tree_method(opt::Optimizer)
     end
     MOI.set(oa_model, MOI.LazyConstraintCallback(), lazy_cb)
 
-    function heuristic_cb(cb)
-        opt.num_heuristic_cbs += 1
-        opt.new_incumbent || return true
-        oa_start = get_oa_start(opt, opt.incumbent)
-        cb_status = MOI.submit(oa_model, MOI.HeuristicSolution(cb), opt.oa_vars, oa_start)
-        println("heuristic cb status was: ", cb_status)
-        # TODO do what with cb_status
-        opt.new_incumbent = false
-        return
+    if opt.solve_subproblems
+        function heuristic_cb(cb)
+            opt.num_heuristic_cbs += 1
+            opt.new_incumbent || return
+
+            oa_start = get_oa_start(opt, opt.incumbent)
+            status = MOI.submit(oa_model, MOI.HeuristicSolution(cb), opt.oa_vars, oa_start)
+            if opt.verbose
+                println("heuristic cb status was: ", status)
+            end
+            opt.new_incumbent = false
+            return
+        end
+        MOI.set(oa_model, MOI.HeuristicCallback(), heuristic_cb)
     end
-    MOI.set(oa_model, MOI.HeuristicCallback(), heuristic_cb)
 
     time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true
