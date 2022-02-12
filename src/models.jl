@@ -98,11 +98,13 @@ function setup_models(opt::Optimizer)
     end
 
     isempty(opt.cone_caches) || return false
+    # no conic constraints need outer approximation, so just solve the OA model and finish
     if opt.verbose
         println("no conic constraints need outer approximation")
     end
 
-    # no conic constraints need outer approximation, so just solve the OA model and finish
+    # add integrality constraints to OA model and solve
+    JuMP.set_integer.(opt.oa_x[1:(opt.num_int_vars)])
     time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true
     JuMP.optimize!(oa_model)
