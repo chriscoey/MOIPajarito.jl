@@ -39,7 +39,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, opt::Optimizer
     end
 
     # cut is (1, -ws / ‖ws‖)
-    r = -inv(ws_norm) * ws
+    r = ws / -ws_norm
     return _get_cuts(r, cache, opt)
 end
 

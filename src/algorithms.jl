@@ -23,8 +23,22 @@ function optimize(opt::Optimizer)
     add_relax_cuts(opt)
     add_init_cuts(opt)
 
+    # ensure check continuous relaxation of OA model is bounded
+    num_relax_iters = 0
+    while num_relax_iters < 10
+        finish_bound = run_oa_relax_bound(opt)
+        finish_bound && break
+        num_relax_iters += 1
+    end
+    if opt.verbose
+        println("separated $num_relax_iters rays before imposing integrality")
+    end
+
+    # add integrality constraints to OA model
+    JuMP.set_integer.(opt.oa_x[1:(opt.num_int_vars)])
+
+    # run main OA algorithm
     if opt.use_iterative_method
-        # solve using iterative method
         print_header(opt)
         while true
             opt.num_iters += 1
@@ -32,7 +46,6 @@ function optimize(opt::Optimizer)
             finish_iter && break
         end
     else
-        # solve using one tree method
         run_one_tree_method(opt)
     end
 
@@ -161,15 +174,14 @@ function run_one_tree_method(opt::Optimizer)
 
     function lazy_cb(cb)
         opt.num_lazy_cbs += 1
-        status = JuMP.callback_node_status(cb, oa_model)
-        if status != MOI.CALLBACK_NODE_STATUS_INTEGER
-            # only solve subproblem at an integer solution
-            return
-        end
         opt.lazy_cb = cb
+        int = (JuMP.callback_node_status(cb, oa_model) == MOI.CALLBACK_NODE_STATUS_INTEGER)
 
         subp_cuts_added = false
         if opt.solve_subproblems
+            # only solve subproblem at an integer solution
+            int || return
+
             # check if integer solution is repeated and cache the cuts
             int_sol = get_integral_solution(opt)
             hash_int_sol = hash(int_sol)
@@ -197,8 +209,8 @@ function run_one_tree_method(opt::Optimizer)
 
         if !subp_cuts_added
             cuts_added = add_sep_cuts(opt)
-            if !cuts_added
-                # no separation cuts, so try updating incumbent from OA solver
+            if !cuts_added && int
+                # integer solution and no separation cuts added, so try updating incumbent
                 update_incumbent_from_OA(opt)
             end
         end
@@ -260,16 +272,17 @@ function solve_relaxation(opt::Optimizer)
     if opt.verbose
         println("solving continuous relaxation")
     end
-    time_finish = check_set_time_limit(opt, opt.relax_model)
+    relax_model = opt.relax_model
+    time_finish = check_set_time_limit(opt, relax_model)
     time_finish && return true
-    JuMP.optimize!(opt.relax_model)
+    JuMP.optimize!(relax_model)
 
-    relax_status = JuMP.termination_status(opt.relax_model)
+    relax_status = JuMP.termination_status(relax_model)
     if opt.verbose
         println("continuous relaxation status is $relax_status")
     end
     if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
-        opt.obj_bound = JuMP.dual_objective_value(opt.relax_model)
+        opt.obj_bound = JuMP.dual_objective_value(relax_model)
     elseif relax_status in (MOI.DUAL_INFEASIBLE, MOI.ALMOST_DUAL_INFEASIBLE)
         if opt.verbose
             println("problem could be unbounded; Pajarito may fail to converge")
@@ -317,7 +330,7 @@ function solve_relaxation(opt::Optimizer)
     if finish
         if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
             opt.status = MOI.OPTIMAL
-            opt.obj_value = JuMP.objective_value(opt.relax_model)
+            opt.obj_value = JuMP.objective_value(relax_model)
             opt.incumbent = JuMP.value.(opt.relax_x)
         elseif relax_status in (MOI.DUAL_INFEASIBLE, MOI.ALMOST_DUAL_INFEASIBLE)
             opt.status = MOI.DUAL_INFEASIBLE
@@ -335,17 +348,17 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
     modify_subproblem(int_sol, opt)
 
     # solve
-    time_finish = check_set_time_limit(opt, opt.subp_model)
+    subp_model = opt.subp_model
+    time_finish = check_set_time_limit(opt, subp_model)
     time_finish && return true
-    JuMP.optimize!(opt.subp_model)
+    JuMP.optimize!(subp_model)
 
-    subp_status = JuMP.termination_status(opt.subp_model)
+    subp_status = JuMP.termination_status(subp_model)
     if opt.verbose
         println("continuous subproblem status is $subp_status")
     end
     if subp_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
-        obj_val =
-            JuMP.objective_value(opt.subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
+        obj_val = JuMP.objective_value(subp_model) + LinearAlgebra.dot(opt.c_int, int_sol)
         if obj_val < opt.obj_value
             # update incumbent and objective value
             subp_sol = JuMP.value.(opt.subp_x)
@@ -368,6 +381,23 @@ function solve_subproblem(int_sol::Vector{Int}, opt::Optimizer)
         @warn("continuous subproblem status $subp_status is not handled")
         return false
     end
+end
+
+# add separation cuts on primal rays of the continuous relaxation of the OA model
+function run_oa_relax_bound(opt::Optimizer)
+    # solve OA model
+    time_finish = check_set_time_limit(opt, opt.oa_model)
+    time_finish && return true
+    JuMP.optimize!(opt.oa_model)
+
+    pr_status = JuMP.primal_status(opt.oa_model)
+    if pr_status in (MOI.INFEASIBILITY_CERTIFICATE, MOI.NEARLY_INFEASIBILITY_CERTIFICATE)
+        # add separation cuts for primal ray
+        cuts_added = add_sep_cuts(opt)
+        cuts_added && return false
+        @warn("continuous relaxation of OA model could not be bounded")
+    end
+    return true
 end
 
 # update incumbent from OA solver
