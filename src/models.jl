@@ -5,9 +5,6 @@ function setup_models(opt::Optimizer)
     # mixed-integer OA model
     oa_model = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
     oa_x = opt.oa_x = JuMP.@variable(oa_model, [1:length(opt.c)])
-    for i in 1:(opt.num_int_vars)
-        JuMP.set_integer(oa_x[i])
-    end
     JuMP.@objective(oa_model, Min, JuMP.dot(opt.c, oa_x))
     JuMP.@constraint(oa_model, opt.A * oa_x .== opt.b)
 
