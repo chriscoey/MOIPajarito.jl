@@ -30,7 +30,7 @@ const OACone = Union{
 
 setup_auxiliary(::Cache, ::Optimizer) = VR[]
 
-extend_start(::Cache, ::Vector{Float64}) = Float64[]
+extend_start(::Cache, ::Vector{Float64}, ::Optimizer) = Float64[]
 
 num_ext_variables(::Cache) = 0
 

@@ -319,7 +319,7 @@ function solve_relaxation(opt::Optimizer)
         int_sol = JuMP.value.(opt.relax_x[1:(opt.num_int_vars)])
         round_int_sol = round.(Int, int_sol)
         # TODO different tol option?
-        if isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
+        if isapprox(round_int_sol, int_sol, atol = opt.tol_feas)
             if opt.verbose
                 println("optimal solution to conic relaxation is integral; terminating")
             end
@@ -421,7 +421,7 @@ function get_integral_solution(opt::Optimizer)
     # check solution is integral
     round_int_sol = round.(Int, int_sol)
     # TODO different tol option?
-    if !isapprox(round_int_sol, int_sol, atol = opt.tol_feas, rtol = opt.tol_feas)
+    if !isapprox(round_int_sol, int_sol, atol = opt.tol_feas)
         error("integer variable solution is not integral to tolerance tol_feas")
     end
     return round_int_sol

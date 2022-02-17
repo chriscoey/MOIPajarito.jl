@@ -162,7 +162,7 @@ function get_oa_start(opt::Optimizer, x_start::Vector{Float64})
         if !iszero(ext_dim)
             # set auxiliary variables start
             s_start_i = s_start[opt.oa_cone_idxs[i]]
-            ext_start = Cones.extend_start(cache, s_start_i)
+            ext_start = Cones.extend_start(cache, s_start_i, opt)
             @assert ext_dim == length(ext_start)
             oa_start[n .+ (1:ext_dim)] .= ext_start
             n += ext_dim

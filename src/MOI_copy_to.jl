@@ -82,7 +82,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     model_b = Float64[]
     for F in (VV, VAF), ci in get_src_cons(F, MOI.Zeros)
         fi = get_con_fun(ci)
-        idxs = _constraint_IJV(IA, JA, VA, model_b, fi, idx_map)
+        _constraint_IJV(IA, JA, VA, model_b, fi, idx_map)
         idx_map[ci] = ci
     end
     opt.A = SparseArrays.dropzeros!(SparseArrays.sparse(IA, JA, VA, length(model_b), n))

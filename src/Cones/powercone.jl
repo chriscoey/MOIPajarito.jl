@@ -58,7 +58,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::PowerCone, opt::Optimizer)
 
     # check s ∉ K
     t = cache.t
-    if us >= 0 && vs >= 0 && (us^t * vs^(1 - t) - abs(ws)) > -1e-7
+    if us >= 0 && vs >= 0 && (us^t * vs^(1 - t) - abs(ws)) > -opt.tol_feas
         return AE[]
     end
 
