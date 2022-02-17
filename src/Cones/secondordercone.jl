@@ -72,7 +72,7 @@ end
 
 num_ext_variables(cache::SecondOrderCone{Ext}) = cache.d
 
-function extend_start(cache::SecondOrderCone{Ext}, s_start::Vector{Float64})
+function extend_start(cache::SecondOrderCone{Ext}, s_start::Vector{Float64}, opt::Optimizer)
     u_start = s_start[1]
     w_start = s_start[2:end]
     if u_start < opt.tol_feas
