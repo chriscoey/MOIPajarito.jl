@@ -34,7 +34,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::SecondOrderCone, opt::Optimizer
     @views ws = s[2:end]
     ws_norm = LinearAlgebra.norm(ws)
     # check s ∉ K
-    if us - ws_norm > -1e-7 # TODO option
+    if us - ws_norm > -opt.tol_feas
         return AE[]
     end
 
@@ -47,7 +47,7 @@ end
 
 function add_init_cuts(cache::SecondOrderCone{Nat}, opt::Optimizer)
     u = cache.oa_s[1]
-    @views w = cache.oa_s[2:end] # TODO cache?
+    @views w = cache.oa_s[2:end]
     d = cache.d
     # u ≥ 0, u ≥ |wᵢ|
     JuMP.@constraints(opt.oa_model, begin
@@ -75,8 +75,7 @@ num_ext_variables(cache::SecondOrderCone{Ext}) = cache.d
 function extend_start(cache::SecondOrderCone{Ext}, s_start::Vector{Float64})
     u_start = s_start[1]
     w_start = s_start[2:end]
-    @assert u_start - LinearAlgebra.norm(w_start) >= -1e-7 # TODO
-    if u_start < 1e-8
+    if u_start < opt.tol_feas
         return zeros(cache.d)
     end
     return [w_i / 2u_start * w_i for w_i in w_start]

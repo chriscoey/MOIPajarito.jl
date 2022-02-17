@@ -67,7 +67,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, opt::Optimizer
     # check s ∉ K and add cut
     if vs <= 1e-7
         # vs near zero, so violation is us
-        if us >= 1e-7
+        if us >= opt.tol_feas
             if ws <= 1e-12
                 error("cannot add separation cut for exponential cone")
             end
@@ -79,12 +79,12 @@ function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, opt::Optimizer
         else
             return AE[]
         end
-    elseif ws / vs > 1e-8 && us - vs * log(ws / vs) > 1e-7
+    elseif ws / vs > 1e-8 && us - vs * log(ws / vs) > opt.tol_feas
         # vs and ws not near zero
         # gradient cut is (-1, log(ws / vs) - 1, vs / ws)
         q = log(ws / vs) - 1
         cut = JuMP.@expression(opt.oa_model, -u + q * v + vs / ws * w)
-    elseif vs * exp(us / vs) - ws > 1e-7
+    elseif vs * exp(us / vs) - ws > opt.tol_feas
         # gradient cut is (-exp(us / vs), (us - vs) / vs * exp(us / vs), 1)
         p = -exp(us / vs)
         q = (us - vs) / vs * -p

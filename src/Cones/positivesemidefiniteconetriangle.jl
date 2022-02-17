@@ -47,7 +47,7 @@ function get_subp_cuts(
 )
     # strengthened cuts from eigendecomposition are λᵢ * rᵢ * rᵢ'
     R = vec_to_symm(cache.d, z)
-    F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-10, Inf) # TODO tune
+    F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(R, :U), 1e-9, Inf)
     isempty(F.values) && return AE[]
     R_eig = F.vectors * LinearAlgebra.Diagonal(sqrt.(F.values))
     return _get_cuts(R_eig, cache, opt)
@@ -60,7 +60,7 @@ function get_sep_cuts(
 )
     # check s ∉ K
     sW = vec_to_symm(cache.d, s)
-    F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(sW, :U), -Inf, -1e-7)
+    F = LinearAlgebra.eigen!(LinearAlgebra.Symmetric(sW, :U), -Inf, -opt.tol_feas)
     isempty(F.values) && return AE[]
     return _get_cuts(F.vectors, cache, opt)
 end
