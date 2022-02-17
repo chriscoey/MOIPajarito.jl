@@ -5,6 +5,7 @@ module MOIPajarito
 import Printf
 import LinearAlgebra
 import SparseArrays
+import Graphs
 
 import JuMP
 const MOI = JuMP.MOI

@@ -30,6 +30,12 @@ function setup_models(opt::Optimizer)
     opt.b_cont = opt.b[keep_rows]
     opt.A_int = opt.A[keep_rows, int_range]
 
+# partition the continuous subproblem variables if it decomposes
+    subp_var_partition = partition_subp_vars(A_cont, G_cont,opt.cones, opt.cone_idxs)
+    if length(subp_var_partition) > 1
+        ...
+    end
+
     # continuous subproblem model
     subp_model = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
     subp_x = opt.subp_x = JuMP.@variable(subp_model, [1:num_cont_vars])
@@ -186,4 +192,39 @@ function modify_subproblem(int_sol::Vector{Int}, opt::Optimizer)
         MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
     end
     return
+end
+
+# partition the continuous subproblem variables if the subproblem decomposes
+function partition_subp_vars(
+    A::SparseMatrixCSC{Float64, Int},
+    G::SparseMatrixCSC{Float64, Int},
+    cones::Vector{MOI.AbstractVectorSet},
+    cone_idxs::Vector{UnitRange{Int}},
+)
+    # (Gt_rows, Gt_cols, _) = findnz(G')
+    (G_rows, G_cols, _) = findnz(G)
+
+    # combine variable partitions involved in the same primitive cone
+    for (cone, idxs) in zip(cones, cone_idxs)
+        if cone isa MOI.Nonnegatives
+            # nonnegative cone is not primitive for dim > 1
+            continue
+        end
+
+        # add a block of 1s to the first row corresponding to the primitive cone
+
+    end
+
+    # partition variables according to A, G
+    p = size(A, 1)
+    (A_rows, A_cols, _) = findnz(A)
+    # (G_rows, G_cols, _) = findnz(G)
+    G_rows .+= p
+    AG_rows = vcat(A_rows, G_rows)
+    AG_cols = vcat(A_cols, G_cols)
+    AG = sparse(AG_rows, AG_cols, ones(Int, length(AG_rows)))
+    adj = Graphs.SimpleGraph(Symmetric(AG' * AG))
+    var_part_1 = Graphs.connected_components(adj)
+
+    return var_part_2
 end
