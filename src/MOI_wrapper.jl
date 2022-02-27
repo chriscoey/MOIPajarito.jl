@@ -62,12 +62,20 @@ function MOI.supports_constraint(opt::Optimizer, F::Type{VI}, S::Type{MOI.Intege
     return MOI.supports_constraint(get_oa_opt(opt), F, S)
 end
 
-# cone must be supported by both Pajarito and the conic solver
+# if not solving conic subproblems, allow SOS1/2 constraints if supported by OA solver
+function MOI.supports_constraint(opt::Optimizer, F::Type{VV}, S::Type{<:SOS12})
+    return !opt.solve_subproblems && MOI.supports_constraint(get_oa_opt(opt), F, S)
+end
+
+# if using conic solver, cone must be supported by both Pajarito and the conic solver
 function MOI.supports_constraint(
     opt::Optimizer,
     F::Type{<:Union{VV, VAF}},
     S::Type{<:Union{MOI.Zeros, MOI.Nonnegatives, Cones.OACone}},
 )
+    if !(opt.solve_relaxation || opt.solve_subproblems)
+        return true
+    end
     return MOI.supports_constraint(get_conic_opt(opt), F, S)
 end
 

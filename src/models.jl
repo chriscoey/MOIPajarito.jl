@@ -2,45 +2,49 @@
 
 # setup conic and OA models
 function setup_models(opt::Optimizer)
-    # mixed-integer OA model
+    @assert !opt.solve_subproblems || isempty(opt.SOS12_cons)
+
+    # mixed-integer OA model, add discrete constraints later
     oa_model = opt.oa_model = JuMP.Model(() -> opt.oa_opt)
     oa_x = opt.oa_x = JuMP.@variable(oa_model, [1:length(opt.c)])
     JuMP.@objective(oa_model, Min, JuMP.dot(opt.c, oa_x))
     JuMP.@constraint(oa_model, opt.A * oa_x .== opt.b)
-
-    # continuous relaxation model
-    relax_model = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
-    relax_x = opt.relax_x = JuMP.@variable(relax_model, [1:length(opt.c)])
-    JuMP.@objective(relax_model, Min, JuMP.dot(opt.c, relax_x))
-    JuMP.@constraint(relax_model, opt.b - opt.A * relax_x in MOI.Zeros(length(opt.b)))
-
-    # differentiate integer and continuous variables
-    num_cont_vars = length(opt.c) - opt.num_int_vars
-    int_range = 1:(opt.num_int_vars)
-    cont_range = (opt.num_int_vars + 1):length(opt.c)
-    opt.c_int = opt.c[int_range]
-    opt.G_int = opt.G[:, int_range]
-    c_cont = opt.c[cont_range]
-    G_cont = opt.G[:, cont_range]
-
-    A_cont = opt.A[:, cont_range]
-    # remove zero rows in A_cont for subproblem
-    keep_rows = (vec(maximum(abs, A_cont, dims = 2)) .>= 1e-10)
-    A_cont = A_cont[keep_rows, :]
-    opt.b_cont = opt.b[keep_rows]
-    opt.A_int = opt.A[keep_rows, int_range]
-
-    # continuous subproblem model
-    subp_model = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
-    subp_x = opt.subp_x = JuMP.@variable(subp_model, [1:num_cont_vars])
-    JuMP.@objective(subp_model, Min, JuMP.dot(c_cont, subp_x))
-    K0 = MOI.Zeros(length(opt.b_cont))
-    opt.subp_eq = JuMP.@constraint(subp_model, -A_cont * subp_x in K0)
-
-    # conic constraints
     oa_aff = JuMP.@expression(oa_model, opt.h - opt.G * oa_x)
-    relax_aff = JuMP.@expression(relax_model, opt.h - opt.G * relax_x)
-    subp_aff = JuMP.@expression(subp_model, -G_cont * subp_x)
+
+    if opt.solve_relaxation
+        # continuous relaxation model
+        relax_model = opt.relax_model = JuMP.Model(() -> opt.conic_opt)
+        relax_x = opt.relax_x = JuMP.@variable(relax_model, [1:length(opt.c)])
+        JuMP.@objective(relax_model, Min, JuMP.dot(opt.c, relax_x))
+        JuMP.@constraint(relax_model, opt.b - opt.A * relax_x in MOI.Zeros(length(opt.b)))
+        relax_aff = JuMP.@expression(relax_model, opt.h - opt.G * relax_x)
+    end
+
+    if opt.solve_subproblems
+        # differentiate integer and continuous variables
+        num_cont_vars = length(opt.c) - opt.num_int_vars
+        int_range = 1:(opt.num_int_vars)
+        cont_range = (opt.num_int_vars + 1):length(opt.c)
+        opt.c_int = opt.c[int_range]
+        opt.G_int = opt.G[:, int_range]
+        c_cont = opt.c[cont_range]
+        G_cont = opt.G[:, cont_range]
+        A_cont = opt.A[:, cont_range]
+
+        # remove zero rows in A_cont for subproblem
+        keep_rows = (vec(maximum(abs, A_cont, dims = 2)) .>= 1e-10)
+        A_cont = A_cont[keep_rows, :]
+        opt.b_cont = opt.b[keep_rows]
+        opt.A_int = opt.A[keep_rows, int_range]
+
+        # continuous subproblem model
+        subp_model = opt.subp_model = JuMP.Model(() -> opt.conic_opt)
+        subp_x = opt.subp_x = JuMP.@variable(subp_model, [1:num_cont_vars])
+        JuMP.@objective(subp_model, Min, JuMP.dot(c_cont, subp_x))
+        K0 = MOI.Zeros(length(opt.b_cont))
+        opt.subp_eq = JuMP.@constraint(subp_model, -A_cont * subp_x in K0)
+        subp_aff = JuMP.@expression(subp_model, -G_cont * subp_x)
+    end
 
     oa_vars = opt.oa_vars = copy(oa_x)
     opt.subp_cones = CR[]
@@ -53,16 +57,26 @@ function setup_models(opt::Optimizer)
     opt.unique_cones = Dict{UInt, Any}()
 
     for (cone, idxs) in zip(opt.cones, opt.cone_idxs)
-        relax_cone_i = JuMP.@constraint(relax_model, relax_aff[idxs] in cone)
-
         oa_supports = MOI.supports_constraint(opt.oa_opt, VAF, typeof(cone))
 
-        subp_aff_i = subp_aff[idxs]
-        if !oa_supports || !iszero(subp_aff_i)
-            # conic constraint must be added to subproblem
-            subp_cone_i = JuMP.@constraint(subp_model, subp_aff_i in cone)
-            push!(opt.subp_cones, subp_cone_i)
-            push!(opt.subp_cone_idxs, idxs)
+        if opt.solve_relaxation
+            relax_cone_i = JuMP.@constraint(relax_model, relax_aff[idxs] in cone)
+            if !oa_supports
+                push!(opt.relax_oa_cones, relax_cone_i)
+            end
+        end
+
+        if opt.solve_subproblems
+            subp_aff_i = subp_aff[idxs]
+            if !oa_supports || !iszero(subp_aff_i)
+                # conic constraint must be added to subproblem
+                subp_cone_i = JuMP.@constraint(subp_model, subp_aff_i in cone)
+                push!(opt.subp_cones, subp_cone_i)
+                push!(opt.subp_cone_idxs, idxs)
+            end
+            if !oa_supports
+                push!(opt.subp_oa_cones, subp_cone_i)
+            end
         end
 
         oa_aff_i = oa_aff[idxs]
@@ -78,9 +92,6 @@ function setup_models(opt::Optimizer)
             cache = Cones.create_cache(oa_aff_i, cone, opt)
             ext_i = Cones.setup_auxiliary(cache, opt)
             append!(oa_vars, ext_i)
-
-            push!(opt.relax_oa_cones, relax_cone_i)
-            push!(opt.subp_oa_cones, subp_cone_i)
             push!(opt.cone_caches, cache)
             push!(opt.oa_cone_idxs, idxs)
         end
@@ -104,7 +115,7 @@ function setup_models(opt::Optimizer)
     end
 
     # add integrality constraints to OA model and solve
-    JuMP.set_integer.(opt.oa_x[1:(opt.num_int_vars)])
+    add_discrete_constraints(opt)
     time_finish = check_set_time_limit(opt, oa_model)
     time_finish && return true
     JuMP.optimize!(oa_model)
@@ -184,6 +195,14 @@ function modify_subproblem(int_sol::Vector{Int}, opt::Optimizer)
     new_h = opt.h - opt.G_int * int_sol
     for (cr, idxs) in zip(opt.subp_cones, opt.subp_cone_idxs)
         MOI.modify(moi_model, JuMP.index(cr), MOI.VectorConstantChange(new_h[idxs]))
+    end
+    return
+end
+
+function add_discrete_constraints(opt::Optimizer)
+    JuMP.set_integer.(opt.oa_x[1:(opt.num_int_vars)])
+    for (idxs, si) in opt.SOS12_cons
+        JuMP.@constraint(opt.oa_model, opt.oa_x[idxs] in si)
     end
     return
 end
