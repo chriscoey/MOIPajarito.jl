@@ -2,6 +2,7 @@
 
 function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     idx_map = MOI.Utilities.IndexMap()
+    get_src_cons(F, S) = MOI.get(src, MOI.ListOfConstraintIndices{F, S}())
 
     # variable attributes including variable warm start
     has_warm_start = false
@@ -21,7 +22,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     opt.warm_start = has_warm_start ? fill(NaN, n) : Float64[]
     j = 0
     # integer variables
-    cis = MOI.get(src, MOI.ListOfConstraintIndices{VI, MOI.Integer}())
+    cis = get_src_cons(VI, MOI.Integer)
     opt.num_int_vars = length(cis)
     for ci in cis
         j += 1
@@ -73,9 +74,18 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
     opt.c = model_c
 
     # constraints
-    get_src_cons(F, S) = MOI.get(src, MOI.ListOfConstraintIndices{F, S}())
     get_con_fun(con_idx) = MOI.get(src, MOI.ConstraintFunction(), con_idx)
     get_con_set(con_idx) = MOI.get(src, MOI.ConstraintSet(), con_idx)
+
+    # SOS1/2 constraints
+    opt.SOS12_cons = Pair{Vector{Int}, <:SOS12}[]
+    for S in (MOI.SOS1{Float64}, MOI.SOS2{Float64}), ci in get_src_cons(VV, S)
+        fi = get_con_fun(ci)
+        si = get_con_set(ci)
+        idxs = [idx_map[vi].value for vi in fi.variables]
+        push!(opt.SOS12_cons, (idxs => si))
+        idx_map[ci] = ci
+    end
 
     # equality constraints
     (IA, JA, VA) = (Int[], Int[], Float64[])
@@ -119,7 +129,7 @@ function MOI.copy_to(opt::Optimizer, src::MOI.ModelLike)
             end
             throw(MOI.UnsupportedAttribute(attr))
         end
-        if S == MOI.Zeros || S == MOI.Nonnegatives || S == MOI.Integer
+        if S in (MOI.Zeros, MOI.Nonnegatives, MOI.Integer) || S <: SOS12
             continue # already copied these constraints
         end
 

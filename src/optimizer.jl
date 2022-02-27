@@ -30,6 +30,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     cones::Vector{MOI.AbstractVectorSet}
     cone_idxs::Vector{UnitRange{Int}}
     num_int_vars::Int
+    SOS12_cons::Vector{Pair{Vector{Int}, <:SOS12}}
 
     # models, variables, etc
     oa_model::JuMP.Model
@@ -131,6 +132,7 @@ function empty_optimize(opt::Optimizer)
     return opt
 end
 
+# check/instantiate OA solver and set default for use_iterative_method
 function get_oa_opt(opt::Optimizer)
     if isnothing(opt.oa_opt)
         if isnothing(opt.oa_solver)
@@ -153,6 +155,7 @@ function get_oa_opt(opt::Optimizer)
     return opt.oa_opt
 end
 
+# check/instantiate conic solver
 function get_conic_opt(opt::Optimizer)
     if isnothing(opt.conic_opt)
         if isnothing(opt.conic_solver)

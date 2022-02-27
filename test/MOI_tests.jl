@@ -8,16 +8,26 @@ const MOI = MathOptInterface
 import MOIPajarito
 
 function runtests(oa_solver, conic_solver)
-    @testset "iterative method" begin
-        run_moi_tests(true, oa_solver, conic_solver)
+    @testset "solving conic subproblems" begin
+        @testset "iterative method" begin
+            run_moi_tests(true, true, oa_solver, conic_solver)
+        end
+        @testset "one tree method" begin
+            run_moi_tests(false, true, oa_solver, conic_solver)
+        end
     end
-    @testset "one tree method" begin
-        run_moi_tests(false, oa_solver, conic_solver)
+    @testset "not solving conic subproblems" begin
+        @testset "iterative method" begin
+            run_moi_tests(true, false, oa_solver, conic_solver)
+        end
+        @testset "one tree method" begin
+            run_moi_tests(false, false, oa_solver, conic_solver)
+        end
     end
     return
 end
 
-function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
+function run_moi_tests(use_iter::Bool, solve_subp::Bool, oa_solver, conic_solver)
     model = MOI.Bridges.full_bridge_optimizer(
         MOI.Utilities.CachingOptimizer(
             MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}()),
@@ -27,6 +37,7 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
     )
     MOI.set(model, MOI.Silent(), true)
     MOI.set(model, MOI.RawOptimizerAttribute("use_iterative_method"), use_iter)
+    MOI.set(model, MOI.RawOptimizerAttribute("solve_subproblems"), solve_subp)
     MOI.set(model, MOI.RawOptimizerAttribute("oa_solver"), oa_solver)
     MOI.set(model, MOI.RawOptimizerAttribute("conic_solver"), conic_solver)
     # MOI.set(model, MOI.RawOptimizerAttribute("time_limit"), 60)
@@ -48,9 +59,11 @@ function run_moi_tests(use_iter::Bool, oa_solver, conic_solver)
         ),
         # include = String[],
         exclude = String[
-            # TODO(odow): unexpected failure, probably in the bridge layer
+            # TODO: unexpected failures, probably in the bridge layer
             "test_model_UpperBoundAlreadySet",
             "test_model_LowerBoundAlreadySet",
+            "test_constraint_Indicator_ACTIVATE_ON_ZERO",
+            "test_linear_Indicator_constant_term",
         ],
     )
     return

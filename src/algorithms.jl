@@ -17,13 +17,15 @@ function optimize(opt::Optimizer)
             finish_optimize(opt)
             return
         end
+
+        # add continuous relaxation cuts
+        add_relax_cuts(opt)
     end
 
-    # add continuous relaxation cuts and initial fixed cuts
-    add_relax_cuts(opt)
+    # add initial fixed cuts
     add_init_cuts(opt)
 
-    # ensure check continuous relaxation of OA model is bounded
+    # ensure continuous relaxation of OA model is bounded
     num_relax_iters = 0
     while num_relax_iters < 10
         finish_bound = run_oa_relax_bound(opt)
@@ -34,8 +36,8 @@ function optimize(opt::Optimizer)
         println("separated $num_relax_iters rays before imposing integrality")
     end
 
-    # add integrality constraints to OA model
-    JuMP.set_integer.(opt.oa_x[1:(opt.num_int_vars)])
+    # add discrete constraints to OA model
+    add_discrete_constraints(opt)
 
     # run main OA algorithm
     if opt.use_iterative_method
@@ -165,8 +167,8 @@ function run_one_tree_method(opt::Optimizer)
         println("starting one tree method")
     end
     oa_model = opt.oa_model
-    if iszero(opt.num_int_vars)
-        println("model has no integer variables, so adding a dummy integer variable")
+    if iszero(opt.num_int_vars) && isempty(opt.SOS12_cons)
+        println("model has no discrete variables, so adding a dummy integer variable")
         dummy = JuMP.@variable(oa_model, integer = true)
     else
         dummy = nothing
@@ -307,7 +309,7 @@ function solve_relaxation(opt::Optimizer)
     finish = false
 
     # check whether problem is continuous
-    if iszero(opt.num_int_vars)
+    if iszero(opt.num_int_vars) && isempty(opt.SOS12_cons)
         if opt.verbose
             println("problem is continuous; terminating")
         end
@@ -315,13 +317,10 @@ function solve_relaxation(opt::Optimizer)
     end
 
     if relax_status in (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
-        # check whether conic relaxation solution is integral
-        int_sol = JuMP.value.(opt.relax_x[1:(opt.num_int_vars)])
-        round_int_sol = round.(Int, int_sol)
-        # TODO different tol option?
-        if isapprox(round_int_sol, int_sol, atol = opt.tol_feas)
+        # check whether solution is feasible for integrality and SOS1/2 constraints
+        if is_discrete_feas(opt, opt.relax_x)
             if opt.verbose
-                println("optimal solution to conic relaxation is integral; terminating")
+                println("relaxation solution satisfies discrete constraints; terminating")
             end
             finish = true
         end
@@ -425,6 +424,24 @@ function get_integral_solution(opt::Optimizer)
         error("integer variable solution is not integral to tolerance tol_feas")
     end
     return round_int_sol
+end
+
+function is_discrete_feas(opt::Optimizer, vars::Vector{VR})
+    # check whether solution is integral
+    int_sol = JuMP.value.(vars[1:(opt.num_int_vars)])
+    round_int_sol = round.(Int, int_sol)
+    if !isapprox(round_int_sol, int_sol, atol = opt.tol_feas)
+        return false
+    end
+
+    # check whether SOS1/2 constraints are satisfied
+    for (idxs, si) in opt.SOS12_cons
+        num_nz = count(i -> abs(JuMP.value(vars[i])) > opt.tol_feas, idxs)
+        if num_nz > (si isa MOI.SOS1 ? 1 : 2)
+            return false
+        end
+    end
+    return true
 end
 
 # initialize and print

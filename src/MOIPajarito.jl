@@ -12,6 +12,7 @@ const VI = MOI.VariableIndex
 const SAF = MOI.ScalarAffineFunction{Float64}
 const VV = MOI.VectorOfVariables
 const VAF = MOI.VectorAffineFunction{Float64}
+const SOS12 = Union{MOI.SOS1{Float64}, MOI.SOS2{Float64}}
 const VR = JuMP.VariableRef
 const CR = JuMP.ConstraintRef
 const AE = JuMP.AffExpr
