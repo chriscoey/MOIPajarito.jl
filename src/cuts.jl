@@ -10,75 +10,79 @@ end
 
 # add relaxation dual cuts
 function add_relax_cuts(opt::Optimizer)
-    JuMP.has_duals(opt.relax_model) || return 0
+    JuMP.has_duals(opt.relax_model) || return false
 
-    num_cuts_before = opt.num_cuts
+    cuts = JuMP.AffExpr[]
     for (ci, cache) in zip(opt.relax_oa_cones, opt.cone_caches)
-        z = JuMP.dual(ci)
-        z_norm = LinearAlgebra.norm(z, Inf)
-        if z_norm < 1e-10 # TODO tune
-            continue # discard duals with small norm
-        elseif z_norm > 1e12
-            @warn("norm of dual is large ($z_norm)")
-        end
-
-        cuts = Cones.get_subp_cuts(z, cache, opt)
-        add_cuts(cuts, opt)
+        append!(cuts, get_dual_cuts(ci, cache, false, opt))
     end
+    cuts_added = add_cuts(cuts, opt, false)
 
-    if opt.num_cuts <= num_cuts_before
-        if opt.verbose
-            println("continuous relaxation cuts could not be added")
-        end
-        return false
+    if !cuts_added && opt.verbose
+        println("continuous relaxation cuts could not be added")
     end
-    return true
+    return cuts_added
 end
 
 # add subproblem dual cuts
-function add_subp_cuts(opt::Optimizer, cuts_cache::Union{Nothing, Vector{AE}} = nothing)
+function add_subp_cuts(
+    opt::Optimizer,
+    viol_only::Bool,
+    cuts_cache::Union{Nothing, Vector{AE}},
+)
     JuMP.has_duals(opt.subp_model) || return false
 
-    num_cuts_before = opt.num_cuts
+    cuts = JuMP.AffExpr[]
     for (ci, cache) in zip(opt.subp_oa_cones, opt.cone_caches)
-        z = JuMP.dual(ci)
-        z_norm = LinearAlgebra.norm(z, Inf)
-        if z_norm < 1e-10 # TODO tune
-            continue # discard duals with small norm
-        elseif z_norm > 1e12
-            @warn("norm of dual is large ($z_norm)")
-        end
+        append!(cuts, get_dual_cuts(ci, cache, true, opt))
+    end
+    cuts_added = add_cuts(cuts, opt, viol_only)
+
+    if !isnothing(cuts_cache)
+        append!(cuts_cache, cuts)
+    end
+
+    if !cuts_added && opt.verbose
+        println("subproblem cuts could not be added")
+    end
+    return cuts_added
+end
+
+# add separation cuts (only if violated)
+function add_sep_cuts(opt::Optimizer)
+    s_vals = [get_value(Cones.get_oa_s(cache), opt.lazy_cb) for cache in opt.cone_caches]
+
+    cuts = JuMP.AffExpr[]
+    for (s, cache) in zip(s_vals, opt.cone_caches)
+        append!(cuts, Cones.get_sep_cuts(s, cache, opt))
+    end
+    cuts_added = add_cuts(cuts, opt, true)
+
+    if !cuts_added && opt.verbose
+        println("separation cuts could not be added")
+    end
+    return cuts_added
+end
+
+# get and rescale relaxation/subproblem dual
+function get_dual_cuts(ci::CR, cache::Cache, subp_rescale::Bool, opt::Optimizer)
+    z = JuMP.dual(ci)
+
+    z_norm = LinearAlgebra.norm(z, Inf)
+    if z_norm < 1e-10
+        # discard duals with small norm
+        return JuMP.AffExpr[]
+    elseif z_norm > 1e12
+        @warn("norm of dual is large ($z_norm)")
+    end
+
+    if subp_rescale
         subp_status = JuMP.termination_status(opt.subp_model)
         if subp_status in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
             # rescale dual rays
             z .*= inv(z_norm)
         end
-
-        cuts = Cones.get_subp_cuts(z, cache, opt)
-        add_cuts(cuts, opt)
-
-        if !isnothing(cuts_cache)
-            append!(cuts_cache, cuts)
-        end
-    end
-    return opt.num_cuts > num_cuts_before
-end
-
-# add separation cuts
-function add_sep_cuts(opt::Optimizer)
-    num_cuts_before = opt.num_cuts
-
-    s_vals = [get_value(Cones.get_oa_s(cache), opt.lazy_cb) for cache in opt.cone_caches]
-    for (s, cache) in zip(s_vals, opt.cone_caches)
-        cuts = Cones.get_sep_cuts(s, cache, opt)
-        add_cuts(cuts, opt)
     end
 
-    if opt.num_cuts <= num_cuts_before
-        if opt.verbose
-            println("separation cuts could not be added")
-        end
-        return false
-    end
-    return true
+    return Cones.get_subp_cuts(z, cache, opt)
 end
