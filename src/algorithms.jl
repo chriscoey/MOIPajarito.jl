@@ -101,7 +101,7 @@ function run_iterative_method(opt::Optimizer)
             opt.int_sols_cuts[hash_int_sol] = AE[]
             subp_failed = solve_subproblem(int_sol, opt)
             if !subp_failed
-                subp_cuts_added = add_subp_cuts(opt)
+                subp_cuts_added = add_subp_cuts(opt, false, nothing)
             end
         end
     end
@@ -190,21 +190,16 @@ function run_one_tree_method(opt::Optimizer)
             if haskey(opt.int_sols_cuts, hash_int_sol)
                 # integral solution repeated: add cached cuts
                 cuts = opt.int_sols_cuts[hash_int_sol]
-                num_cuts_before = opt.num_cuts
-                add_cuts(cuts, opt)
-                if opt.num_cuts <= num_cuts_before
-                    if opt.verbose
-                        println("cached subproblem cuts could not be added")
-                    end
-                else
-                    subp_cuts_added = true
+                subp_cuts_added = add_cuts(cuts, opt, true)
+                if !subp_cuts_added && opt.verbose
+                    println("cached subproblem cuts could not be added")
                 end
             else
                 # new integral solution: solve subproblem, cache cuts, and add cuts
                 cuts_cache = opt.int_sols_cuts[hash_int_sol] = AE[]
                 subp_failed = solve_subproblem(int_sol, opt)
                 if !subp_failed
-                    subp_cuts_added = add_subp_cuts(opt, cuts_cache)
+                    subp_cuts_added = add_subp_cuts(opt, true, cuts_cache)
                 end
             end
         end
