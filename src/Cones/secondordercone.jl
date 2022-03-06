@@ -46,12 +46,15 @@ end
 # unextended formulation
 
 function add_init_cuts(cache::SecondOrderCone{Nat}, opt::Optimizer)
+    # add variable bound
     u = cache.oa_s[1]
+    JuMP.@constraint(opt.oa_model, u >= 0)
+    opt.use_init_fixed_oa || return 1
+
+    # add cuts u ≥ |wᵢ|
     @views w = cache.oa_s[2:end]
     d = cache.d
-    # u ≥ 0, u ≥ |wᵢ|
     JuMP.@constraints(opt.oa_model, begin
-        u >= 0
         [i in 1:d], u >= w[i]
         [i in 1:d], u >= -w[i]
     end)
@@ -90,14 +93,16 @@ function setup_auxiliary(cache::SecondOrderCone{Ext}, opt::Optimizer)
 end
 
 function add_init_cuts(cache::SecondOrderCone{Ext}, opt::Optimizer)
+    # add variable bound
     u = cache.oa_s[1]
+    JuMP.@constraint(opt.oa_model, u >= 0)
+    opt.use_init_fixed_oa || return 1
+
+    # add disaggregated cuts (1, 2, ±2) on (u, ϕᵢ, wᵢ), implying u ≥ |wᵢ|
     @views w = cache.oa_s[2:end]
     d = cache.d
     ϕ = cache.ϕ
-    # u ≥ 0, u ≥ |wᵢ|
-    # disaggregated cut on (u, ϕᵢ, wᵢ) is (1, 2, ±2)
     JuMP.@constraints(opt.oa_model, begin
-        u >= 0
         [i in 1:d], u + 2 * ϕ[i] + 2 * w[i] >= 0
         [i in 1:d], u + 2 * ϕ[i] - 2 * w[i] >= 0
     end)

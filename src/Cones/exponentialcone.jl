@@ -20,14 +20,15 @@ function create_cache(oa_s::Vector{AE}, ::MOI.ExponentialCone, ::Optimizer)
 end
 
 function add_init_cuts(cache::ExponentialCone, opt::Optimizer)
+    # add variable bounds
     (u, v, w) = cache.oa_s
-    # add variable bounds and some separation cuts from linearizations at p = -1
+    JuMP.@constraint(opt.oa_model, v >= 0)
+    JuMP.@constraint(opt.oa_model, w >= 0)
+    opt.use_init_fixed_oa || return 2
+
+    # add cuts from linearizations at p = -1
     r_lin = [1e-3, 1e0, 1e2]
-    JuMP.@constraints(opt.oa_model, begin
-        v >= 0
-        w >= 0
-        [r in r_lin], -u - (log(r) + 1) * v + r * w >= 0
-    end)
+    JuMP.@constraint(opt.oa_model, [r in r_lin], -u - (log(r) + 1) * v + r * w >= 0)
     return 2 + length(r_lin)
 end
 
