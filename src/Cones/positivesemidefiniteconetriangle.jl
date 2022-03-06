@@ -23,21 +23,25 @@ function create_cache(
 end
 
 function add_init_cuts(cache::PositiveSemidefiniteConeTriangle, opt::Optimizer)
-    # cuts enforce W_ii ≥ 0, ∀i
-    # cuts on (W_ii, W_jj, W_ij) are (1, 1, ±2), ∀i != j
-    # (a linearization of W_ii * W_jj ≥ W_ij^2)
-    # initial OA polyhedron is the dual cone of diagonally dominant matrices
+    # add variable bounds W_ii ≥ 0, ∀i
     d = cache.d
     W = cache.W
-    JuMP.@constraints(
-        opt.oa_model,
-        begin
-            [i in 1:d], W[i, i] >= 0
-            [j in 1:d, i in 1:(j - 1)], W[i, i] + W[j, j] + 2 * W[i, j] >= 0
-            [j in 1:d, i in 1:(j - 1)], W[i, i] + W[j, j] - 2 * W[i, j] >= 0
-        end
-    )
-    return d^2
+    JuMP.@constraint(opt.oa_model, [i in 1:d], W[i, i] >= 0)
+    opt.use_init_fixed_oa || return
+
+    # add cuts (1, 1, ±2) on (W_ii, W_jj, W_ij), ∀i != j
+    # (a linearization of W_ii * W_jj ≥ W_ij^2)
+    # initial OA polyhedron is the dual cone of diagonally dominant matrices
+    for j in 1:d, i in 1:(j - 1)
+        Wii = W[i, i]
+        Wjj = W[j, j]
+        Wij = W[i, j]
+        JuMP.@constraints(opt.oa_model, begin
+            Wii + Wjj + 2 * Wij >= 0
+            Wii + Wjj - 2 * Wij >= 0
+        end)
+    end
+    return
 end
 
 function get_subp_cuts(
