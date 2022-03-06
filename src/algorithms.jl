@@ -22,8 +22,10 @@ function optimize(opt::Optimizer)
         add_relax_cuts(opt)
     end
 
-    # add initial fixed cuts
-    add_init_cuts(opt)
+    if opt.use_init_fixed_oa
+        # add initial fixed cuts
+        add_init_cuts(opt)
+    end
 
     # ensure continuous relaxation of OA model is bounded
     num_relax_iters = 0
