@@ -26,7 +26,7 @@ function add_init_cuts(cache::PowerCone, opt::Optimizer)
     (u, v, w) = cache.oa_s
     JuMP.@constraint(opt.oa_model, u >= 0)
     JuMP.@constraint(opt.oa_model, v >= 0)
-    opt.use_init_fixed_oa || return 2
+    opt.use_init_fixed_oa || return
 
     # add cuts (t, 1-t, ±1)
     t = cache.t
@@ -34,7 +34,7 @@ function add_init_cuts(cache::PowerCone, opt::Optimizer)
         t * u + (1 - t) * v + w >= 0
         t * u + (1 - t) * v - w >= 0
     end)
-    return 4
+    return
 end
 
 function get_subp_cuts(z::Vector{Float64}, cache::PowerCone, opt::Optimizer)

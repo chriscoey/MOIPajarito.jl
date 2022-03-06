@@ -2,9 +2,11 @@
 
 # add initial fixed cuts
 function add_init_cuts(opt::Optimizer)
+    num_cons = get_num_constraints(opt.oa_model)
     for cache in opt.cone_caches
-        opt.num_cuts += Cones.add_init_cuts(cache, opt)
+        Cones.add_init_cuts(cache, opt)
     end
+    opt.num_cuts += get_num_constraints(opt.oa_model) - num_cons
     return
 end
 

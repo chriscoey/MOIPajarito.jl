@@ -55,3 +55,9 @@ function get_objective_bound(model::JuMP.Model)
     end
     return JuMP.objective_value(model)
 end
+
+# get number of constraints of all types
+function get_num_constraints(model::JuMP.Model)
+    FS = JuMP.list_of_constraint_types(model)
+    return sum(JuMP.num_constraints(model, F, S) for (F, S) in FS)
+end

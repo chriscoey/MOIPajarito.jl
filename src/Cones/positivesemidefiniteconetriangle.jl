@@ -27,7 +27,7 @@ function add_init_cuts(cache::PositiveSemidefiniteConeTriangle, opt::Optimizer)
     d = cache.d
     W = cache.W
     JuMP.@constraint(opt.oa_model, [i in 1:d], W[i, i] >= 0)
-    opt.use_init_fixed_oa || return d
+    opt.use_init_fixed_oa || return
 
     # add cuts (1, 1, ±2) on (W_ii, W_jj, W_ij), ∀i != j
     # (a linearization of W_ii * W_jj ≥ W_ij^2)
@@ -41,7 +41,7 @@ function add_init_cuts(cache::PositiveSemidefiniteConeTriangle, opt::Optimizer)
             Wii + Wjj - 2 * Wij >= 0
         end)
     end
-    return d^2
+    return
 end
 
 function get_subp_cuts(

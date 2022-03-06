@@ -49,7 +49,7 @@ function add_init_cuts(cache::SecondOrderCone{Nat}, opt::Optimizer)
     # add variable bound
     u = cache.oa_s[1]
     JuMP.@constraint(opt.oa_model, u >= 0)
-    opt.use_init_fixed_oa || return 1
+    opt.use_init_fixed_oa || return
 
     # add cuts u ≥ |wᵢ|
     @views w = cache.oa_s[2:end]
@@ -58,7 +58,7 @@ function add_init_cuts(cache::SecondOrderCone{Nat}, opt::Optimizer)
         [i in 1:d], u >= w[i]
         [i in 1:d], u >= -w[i]
     end)
-    return 1 + 2d
+    return
 end
 
 function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Nat}, opt::Optimizer)
@@ -96,7 +96,7 @@ function add_init_cuts(cache::SecondOrderCone{Ext}, opt::Optimizer)
     # add variable bound
     u = cache.oa_s[1]
     JuMP.@constraint(opt.oa_model, u >= 0)
-    opt.use_init_fixed_oa || return 1
+    opt.use_init_fixed_oa || return
 
     # add disaggregated cuts (1, 2, ±2) on (u, ϕᵢ, wᵢ), implying u ≥ |wᵢ|
     @views w = cache.oa_s[2:end]
@@ -106,7 +106,7 @@ function add_init_cuts(cache::SecondOrderCone{Ext}, opt::Optimizer)
         [i in 1:d], u + 2 * ϕ[i] + 2 * w[i] >= 0
         [i in 1:d], u + 2 * ϕ[i] - 2 * w[i] >= 0
     end)
-    return 1 + 2d
+    return
 end
 
 function _get_cuts(r::Vector{Float64}, cache::SecondOrderCone{Ext}, opt::Optimizer)
