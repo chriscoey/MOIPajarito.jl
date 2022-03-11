@@ -74,7 +74,7 @@ function get_dual_cuts(ci::CR, cache::Cache, opt::Optimizer, is_subp::Bool)
     if z_norm < 1e-10
         # discard duals with small norm
         return JuMP.AffExpr[]
-    elseif z_norm > 1e-11
+    elseif z_norm > 1e11
         println("norm of dual is $z_norm")
     end
 
