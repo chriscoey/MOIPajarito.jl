@@ -71,12 +71,18 @@ function get_dual_cuts(ci::CR, cache::Cache, opt::Optimizer)
     z = JuMP.dual(ci)
 
     z_norm = LinearAlgebra.norm(z, Inf)
-    if z_norm < 1e-11 || z_norm > 1e11
-        # discard duals with small/large norm
+    if z_norm < 1e-10
+        # discard duals with small norm
         return JuMP.AffExpr[]
+    elseif z_norm > 1e-11
+        println("norm of dual is $z_norm")
     end
+
     # TODO subproblem-based cut rescaling like old Pajarito
-    z .*= inv(sqrt(z_norm))
+    if JuMP.termination_status(opt.subp_model) in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
+        # rescale dual rays
+        z .*= inv(z_norm)
+    end
 
     return Cones.get_subp_cuts(z, cache, opt)
 end
