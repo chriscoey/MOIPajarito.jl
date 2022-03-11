@@ -16,7 +16,7 @@ function add_relax_cuts(opt::Optimizer)
 
     cuts = JuMP.AffExpr[]
     for (ci, cache) in zip(opt.relax_oa_cones, opt.cone_caches)
-        append!(cuts, get_dual_cuts(ci, cache, opt))
+        append!(cuts, get_dual_cuts(ci, cache, opt, false))
     end
     cuts_added = add_cuts(cuts, opt, false)
 
@@ -36,7 +36,7 @@ function add_subp_cuts(
 
     cuts = JuMP.AffExpr[]
     for (ci, cache) in zip(opt.subp_oa_cones, opt.cone_caches)
-        append!(cuts, get_dual_cuts(ci, cache, opt))
+        append!(cuts, get_dual_cuts(ci, cache, opt, true))
     end
     cuts_added = add_cuts(cuts, opt, viol_only)
 
@@ -67,7 +67,7 @@ function add_sep_cuts(opt::Optimizer)
 end
 
 # get and rescale relaxation/subproblem dual
-function get_dual_cuts(ci::CR, cache::Cache, opt::Optimizer)
+function get_dual_cuts(ci::CR, cache::Cache, opt::Optimizer, is_subp::Bool)
     z = JuMP.dual(ci)
 
     z_norm = LinearAlgebra.norm(z, Inf)
@@ -79,9 +79,12 @@ function get_dual_cuts(ci::CR, cache::Cache, opt::Optimizer)
     end
 
     # TODO subproblem-based cut rescaling like old Pajarito
-    if JuMP.termination_status(opt.subp_model) in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
-        # rescale dual rays
-        z .*= inv(z_norm)
+    if is_subp
+        status = JuMP.termination_status(opt.subp_model)
+        if status in (MOI.INFEASIBLE, MOI.ALMOST_INFEASIBLE)
+            # rescale dual rays
+            z .*= inv(z_norm)
+        end
     end
 
     return Cones.get_subp_cuts(z, cache, opt)
