@@ -416,7 +416,7 @@ function get_integral_solution(opt::Optimizer)
     round_int_sol = round.(Int, int_sol)
     # TODO different tol option?
     if !isapprox(round_int_sol, int_sol, atol = opt.tol_feas)
-        error("integer variable solution is not integral to tolerance tol_feas")
+        @warn("integer variable solution is not integral to tolerance tol_feas")
     end
     return round_int_sol
 end

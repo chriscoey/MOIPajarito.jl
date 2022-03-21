@@ -70,7 +70,7 @@ function get_sep_cuts(s::Vector{Float64}, cache::ExponentialCone, opt::Optimizer
         # vs near zero, so violation is us
         if us >= opt.tol_feas
             if ws <= 1e-12
-                error("cannot add separation cut for exponential cone")
+                @warn("cannot add separation cut for exponential cone")
             end
 
             # cut is (-1, -log(ℯ / 2 * us / ws), us / ws / 2)
