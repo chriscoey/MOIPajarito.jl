@@ -1,3 +1,8 @@
+# Copyright (c) 2021-2022 Chris Coey and contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 # all tests
 
 import Test
@@ -24,7 +29,6 @@ hypatia = MOI.OptimizerWithAttributes(
     "tol_illposed" => 1e-8,
     "tol_slow" => 2e-2,
     "tol_inconsistent" => 1e-7,
-    # "tol_tau_infeas" => 1e-7, # TODO tune
 )
 
 println("starting Pajarito tests")

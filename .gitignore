@@ -4,4 +4,3 @@ Manifest.toml
 *.jl.*.cov
 *.jl.mem
 myruntests.jl
-scratch.jl
